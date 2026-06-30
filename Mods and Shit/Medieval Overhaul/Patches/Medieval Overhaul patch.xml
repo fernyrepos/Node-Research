@@ -22,4 +22,15 @@
     </value>
   </Operation>
 
+  <Operation Class="PatchOperationAddModExtension">
+      <xpath>Defs/ResearchProjectDef[defName="DankPyon_Lumber"]</xpath>
+    <value>
+      <li Class="BetterResearchMenu.ResearchIconExtension">
+        <texPath>ResearchIcons/Trestle</texPath>
+        <!-- <markerTexPath>marker icon</markerTexPath> -->
+      </li>
+    </value>
+  </Operation>
+
+
 </Patch>

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <Patch>
+<!-- hmm -->
+  <!-- <Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Fire" or defName="VFET_Culture" or defName="VFET_Agriculture" or defName="VFET_Weapons" or defName="VFET_Construction" or defName="VFET_Furniture"]</xpath>
+    <value>
+      <li Class="BetterResearchMenu.ResearchFoundationExtension"></li>
+    </value>
+  </Operation> -->
 
   <Operation Class="PatchOperationAddModExtension">
     <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Fire" or defName="VFET_Culture"]</xpath>
@@ -24,6 +31,17 @@
   <value>
     <li Class="BetterResearchMenu.ResearchIconExtension">
       <texPath>ResearchIcons/Culture</texPath>
+      <!-- <markerTexPath>marker icon</markerTexPath> -->
+    </li>
+  </value>
+</Operation>
+
+
+<Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Construction"]</xpath>
+  <value>
+    <li Class="BetterResearchMenu.ResearchIconExtension">
+      <texPath>ResearchIcons/Wall</texPath>
       <!-- <markerTexPath>marker icon</markerTexPath> -->
     </li>
   </value>
