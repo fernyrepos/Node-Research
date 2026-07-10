@@ -8,5 +8,7 @@
     <li IfModActive="DankPyon.Medieval.Overhaul">Mods and Shit/Medieval Overhaul</li>
     <li IfModActive="hlx.UltratechAlteredCarbon">Mods and Shit/Altered Carbon 2</li>
     <li IfModActive="ferny.progressionkitchen">Mods and Shit/Progression Kitchen</li>
+    <li IfModActive="ferny.progressionattire">Mods and Shit/Progression Attire</li>
+    <li IfModActive="Dubwise.DubsBadHygiene">Mods and Shit/Dubs Bad Hygiene</li>
   </v1.6>
 </loadFolders>
