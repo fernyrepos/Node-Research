@@ -2174,9 +2174,12 @@ namespace BetterResearchMenu
                 SoundDefOf.Click.PlayOneShotOnCamera();
             }
 
-            var scaleRect = new Rect(panelRect.xMax - btnSize * 2 - 130f, panelRect.y + btnMargin + 4f, 100f, 16f);
-            GUI.DrawTexture(new Rect(scaleRect.x - 20f, scaleRect.y - 4f, 24f, 24f), TexScale);
-            float newScale = Widgets.HorizontalSlider(scaleRect, selectedNode.customScale, 0.5f, 3f);
+            var scaleRect = new Rect(panelRect.xMax - btnSize * 2 - 130f, panelRect.y + btnMargin + 8f, 100f, 16f);
+            Color oldColor = GUI.color;
+            GUI.color = (selectedNode.customScale > 1.01f) ? Color.white : Color.gray;
+            GUI.DrawTexture(new Rect(scaleRect.x - 25f, scaleRect.y - 4f, 24f, 24f), TexScale);
+            GUI.color = oldColor;
+            float newScale = Widgets.HorizontalSlider(scaleRect, selectedNode.customScale, 1f, 3f);
             if (!Mathf.Approximately(newScale, selectedNode.customScale))
             {
                 selectedNode.customScale = newScale;
