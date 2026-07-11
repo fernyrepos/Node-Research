@@ -1026,7 +1026,7 @@ namespace BetterResearchMenu
                 if (autoOpenTimer <= 0f)
                 {
                     autoOpenTimer = BetterResearchMenuMod.settings.autoOpenRate;
-                    var candidates = nodes.Where(n => n.state == NodeState.Minimized && !n.isPhantom && !n.isGroupNode && !n.isLockedCache && n.matchesSearchCache).ToList();
+                    var candidates = nodes.Where(n => (n.state == NodeState.Minimized || n.state == NodeState.Dot) && !n.isPhantom && !n.isGroupNode && !n.isFinishedCache && !n.isLockedCache && n.matchesSearchCache).ToList();
                     if (candidates.Count > 0)
                     {
                         var toExpand = candidates.RandomElement();
