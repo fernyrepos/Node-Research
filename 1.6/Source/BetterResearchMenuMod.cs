@@ -85,6 +85,9 @@ namespace BetterResearchMenu
                 settings.eraCompletionPercentage = ls.Slider(settings.eraCompletionPercentage, 0.1f, 1f);
             }
 
+            ls.Label("BRM_AutoOpenRate".Translate(settings.autoOpenRate.ToString("F1")));
+            settings.autoOpenRate = ls.Slider(settings.autoOpenRate, 0f, 1f);
+
             ls.Gap();
             ls.CheckboxLabeled("BRM_RevealAllInGodMode".Translate(), ref settings.revealAllInGodMode);
             ls.CheckboxLabeled("BRM_RevealMysteryNodeOnHover".Translate(), ref settings.revealMysteryNodeOnHover);

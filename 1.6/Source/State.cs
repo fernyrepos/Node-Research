@@ -13,6 +13,9 @@ namespace BetterResearchMenu
         public static Dictionary<string, Vector2> nodePositions = [];
         public static List<string> expandedNodeOrder = [];
         public static HashSet<string> openedNodes = [];
+        public static HashSet<string> anchoredNodes = [];
+        public static Dictionary<string, float> nodeScales = [];
+        public static HashSet<string> seededLayoutKeys = [];
         public static TechLevel startingScenarioTechLevel = TechLevel.Undefined;
         public static TechLevel currentSavedTechLevel = TechLevel.Undefined;
         public static bool initialized = false;
@@ -23,6 +26,9 @@ namespace BetterResearchMenu
             nodePositions = [];
             expandedNodeOrder = [];
             openedNodes = [];
+            anchoredNodes = [];
+            nodeScales = [];
+            seededLayoutKeys = [];
             startingScenarioTechLevel = TechLevel.Undefined;
             currentSavedTechLevel = TechLevel.Undefined;
             initialized = false;
@@ -39,6 +45,9 @@ namespace BetterResearchMenu
             Scribe_Collections.Look(ref nodePositions, "BRM_NodePositions", LookMode.Value, LookMode.Value);
             Scribe_Collections.Look(ref expandedNodeOrder, "BRM_ExpandedNodeOrder", LookMode.Value);
             Scribe_Collections.Look(ref openedNodes, "BRM_OpenedNodes", LookMode.Value);
+            Scribe_Collections.Look(ref anchoredNodes, "BRM_AnchoredNodes", LookMode.Value);
+            Scribe_Collections.Look(ref nodeScales, "BRM_NodeScales", LookMode.Value, LookMode.Value);
+            Scribe_Collections.Look(ref seededLayoutKeys, "BRM_SeededLayoutKeys", LookMode.Value);
             Scribe_Values.Look(ref startingScenarioTechLevel, "BRM_StartingScenarioTechLevel", TechLevel.Undefined);
             Scribe_Values.Look(ref currentSavedTechLevel, "BRM_CurrentSavedTechLevel", TechLevel.Undefined);
             Scribe_Values.Look(ref initialized, "BRM_Initialized", false);
@@ -49,6 +58,9 @@ namespace BetterResearchMenu
                 nodePositions ??= [];
                 expandedNodeOrder ??= [];
                 openedNodes ??= [];
+                anchoredNodes ??= [];
+                nodeScales ??= [];
+                seededLayoutKeys ??= [];
 
                 if (currentSavedTechLevel != TechLevel.Undefined && Faction.OfPlayer != null)
                 {

@@ -22,6 +22,7 @@ namespace BetterResearchMenu
         public bool forbidVanillaMenu = false;
         public AdvancementType advancementTiedTo = AdvancementType.Foundations;
         public float eraCompletionPercentage = 1f;
+        public float autoOpenRate = 0.5f;
 
         public bool revealAllInGodMode = true;
         public bool revealMysteryNodeOnHover = false;
@@ -54,6 +55,7 @@ namespace BetterResearchMenu
             Scribe_Values.Look(ref forbidVanillaMenu, "forbidVanillaMenu", false);
             Scribe_Values.Look(ref advancementTiedTo, "advancementTiedTo", AdvancementType.Foundations);
             Scribe_Values.Look(ref eraCompletionPercentage, "eraCompletionPercentage", 1f);
+            Scribe_Values.Look(ref autoOpenRate, "autoOpenRate", 0.5f);
 
             Scribe_Values.Look(ref revealAllInGodMode, "revealAllInGodMode", true);
             Scribe_Values.Look(ref revealMysteryNodeOnHover, "revealMysteryNodeOnHover", false);

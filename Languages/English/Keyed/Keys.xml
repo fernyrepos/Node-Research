@@ -38,6 +38,9 @@
   <BRM_TogglePhysics>Toggle movement/physics</BRM_TogglePhysics>
   <BRM_OpenSettings>Open mod settings</BRM_OpenSettings>
   <BRM_OpenVanillaMenu>Open vanilla research menu</BRM_OpenVanillaMenu>
+  <BRM_ToggleAutoOpen>Toggle auto-open of collapsed nodes over time</BRM_ToggleAutoOpen>
+  <BRM_ToggleFullscreen>Toggle fullscreen mode</BRM_ToggleFullscreen>
+  <BRM_AutoOpenRate>Auto open rate: {0}</BRM_AutoOpenRate>
   <BRM_RevealAllInGodMode>Reveal all nodes in God Mode</BRM_RevealAllInGodMode>
   <BRM_RevealMysteryNodeOnHover>Show details when hovering unknown nodes</BRM_RevealMysteryNodeOnHover>
   <BRM_EnableEmergence>Enable 'Emergence' advancing nodes</BRM_EnableEmergence>

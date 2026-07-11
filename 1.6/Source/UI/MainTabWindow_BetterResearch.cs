@@ -27,6 +27,7 @@ namespace BetterResearchMenu
         public float cachedMass;
         public float cachedWeight;
         public float collisionRadius;
+        public float customScale = 1f;
 
         public Vector2 lastRepulsionForce;
         public Vector2 lastAttractionForce;
@@ -51,6 +52,7 @@ namespace BetterResearchMenu
         public float cachedTitleHeight_Small;
         public float cachedTitleHeight_Medium;
         public float lastCachedZoom = -1f;
+        public List<string> cachedSearchTerms;
 
         public float RadiusMultiplier => (this.isFoundation || this.isEmergence) ? 1.95f : 1.0f;
         public float SpacingMultiplier => (state == NodeState.Dot || state == NodeState.Minimized) ? 0.5f : 1.0f;
@@ -101,6 +103,12 @@ namespace BetterResearchMenu
         private static Texture2D TexVanilla = ContentFinder<Texture2D>.Get("UI/TreeToggle");
         private static Texture2D TexLock = ContentFinder<Texture2D>.Get("UI/Lock");
         private static Texture2D TexSettings = ContentFinder<Texture2D>.Get("UI/Settings");
+        private static Texture2D TexFullscreen = ContentFinder<Texture2D>.Get("UI/Fullscreen");
+        private static Texture2D TexAutoOpen = ContentFinder<Texture2D>.Get("UI/Auto");
+        private static Texture2D TexAnchor = ContentFinder<Texture2D>.Get("UI/anchor");
+        private static Texture2D TexScale = ContentFinder<Texture2D>.Get("UI/Scale");
+        private static Texture2D TexPreviousResult = ContentFinder<Texture2D>.Get("UI/PreviousResult");
+        private static Texture2D TexNextResult = ContentFinder<Texture2D>.Get("UI/NextResult");
         private static Texture2D texGradient;
         public static Dictionary<TechLevel, Texture2D> TechLevelIcons = new Dictionary<TechLevel, Texture2D>
         {
@@ -196,8 +204,11 @@ namespace BetterResearchMenu
         private Vector2 lastMousePos;
         private static Color currentBgColor = new ColorInt(15, 20, 26).ToColor;
         private static Dictionary<string, Vector2> cachedCameraOffsets = [];
-        private static HashSet<string> seededLayoutKeys = new HashSet<string>();
-        private bool appliedSearchActive = false;
+        private bool isFullscreen = false;
+        private bool autoOpenEnabled = false;
+        private float autoOpenTimer = 0f;
+        private List<ResearchNode> currentSearchResults = new List<ResearchNode>();
+        private int currentSearchIndex = 0;
 
         public static bool sessionInitialized = false;
 
@@ -210,7 +221,6 @@ namespace BetterResearchMenu
         {
             currentEra = TechLevel.Undefined;
             cachedCameraOffsets.Clear();
-            seededLayoutKeys.Clear();
             sessionInitialized = false;
         }
 
@@ -237,6 +247,10 @@ namespace BetterResearchMenu
         {
             get
             {
+                if (isFullscreen)
+                {
+                    return new Vector2(UI.screenWidth, UI.screenHeight);
+                }
                 Vector2 requestedTabSize = RequestedTabSize;
                 requestedTabSize.x = UI.screenWidth;
                 requestedTabSize.y *= 1.3f;
@@ -247,6 +261,16 @@ namespace BetterResearchMenu
                 return requestedTabSize;
             }
         }
+
+        public override void SetInitialSizeAndPosition()
+        {
+            base.SetInitialSizeAndPosition();
+            if (isFullscreen)
+            {
+                windowRect = new Rect(0f, 0f, UI.screenWidth, UI.screenHeight);
+            }
+        }
+
         private bool LeftBarVisible =>
             CurTab == DefsOf.Main &&
             BetterResearchMenuMod.settings.enableTechAdvancement;
@@ -405,8 +429,6 @@ namespace BetterResearchMenu
             base.PreOpen();
             if (CurTab == null) CurTab = DefsOf.Main;
             lastCurTab = CurTab;
-            appliedSearchActive = false;
-
             if (!sessionInitialized)
             {
                 currentEra = TechLevel.Undefined;
@@ -426,6 +448,7 @@ namespace BetterResearchMenu
                 cachedErasWithProjects = null;
                 lastErasTab = null;
                 lastFilterText = "";
+                quickSearchWidget.Reset();
                 lastSearchTypingTime = 0f;
                 searchPending = false;
                 prevPanelWidth = 0f;
@@ -487,7 +510,15 @@ namespace BetterResearchMenu
                 var node = new ResearchNode { def = def };
                 node.isFoundation = def.IsFoundation();
                 node.isEmergence = def.HasModExtension<EmergenceExtension>();
+                node.isAnchor = State.anchoredNodes.Contains(def.defName);
+                node.customScale = State.nodeScales.TryGetValue(def.defName, out float s) ? s : 1f;
                 node.state = GetNodeState(def);
+                node.cachedSearchTerms = new List<string> { def.label.ToLower() };
+                var unlocks = GetCachedUnlockedDefs(def);
+                for (int j = 0; j < unlocks.Count; j++)
+                {
+                    node.cachedSearchTerms.Add(unlocks[j].label.ToLower());
+                }
                 if (node.state == NodeState.Hidden)
                 {
                     State.nodePositions.Remove(cacheKey);
@@ -752,11 +783,11 @@ namespace BetterResearchMenu
             }
 
             string layoutKey = $"{CurTab?.defName}_{(int)currentEra}";
-            bool wasSeeded = seededLayoutKeys.Contains(layoutKey);
+            bool wasSeeded = State.seededLayoutKeys.Contains(layoutKey);
             if (!wasSeeded)
             {
                 SeedHierarchicalPositions();
-                seededLayoutKeys.Add(layoutKey);
+                State.seededLayoutKeys.Add(layoutKey);
             }
 
             var anchor = nodes.FirstOrDefault(n => n.isPhantom);
@@ -818,6 +849,8 @@ namespace BetterResearchMenu
                     cachedCameraOffsets[$"{CurTab.defName}_{currentEra}_{GodModeReveal}"] = cameraOffset;
                 }
             }
+
+            UpdateCustomSearch();
         }
 
         private void SeedHierarchicalPositions()
@@ -966,16 +999,14 @@ namespace BetterResearchMenu
 
         public override void WindowUpdate()
         {
-            base.WindowUpdate();
-            var currentFilterText = quickSearchWidget.filter.Text;
-            if (currentFilterText != lastFilterText)
+            var filterText = quickSearchWidget.filter.Text;
+            if (filterText != lastFilterText)
             {
-                lastFilterText = currentFilterText;
-                if (string.IsNullOrEmpty(currentFilterText))
+                lastFilterText = filterText;
+                if (string.IsNullOrEmpty(filterText))
                 {
                     searchPending = false;
-                    UpdateSearchResults();
-                    appliedSearchActive = quickSearchWidget.filter.Active;
+                    UpdateCustomSearch();
                 }
                 else
                 {
@@ -986,8 +1017,25 @@ namespace BetterResearchMenu
             if (searchPending && Time.realtimeSinceStartup - lastSearchTypingTime >= 0.8f)
             {
                 searchPending = false;
-                UpdateSearchResults();
-                appliedSearchActive = quickSearchWidget.filter.Active;
+                UpdateCustomSearch();
+            }
+
+            if (autoOpenEnabled)
+            {
+                autoOpenTimer -= Time.deltaTime;
+                if (autoOpenTimer <= 0f)
+                {
+                    autoOpenTimer = BetterResearchMenuMod.settings.autoOpenRate;
+                    var candidates = nodes.Where(n => n.state == NodeState.Minimized && !n.isPhantom && !n.isGroupNode && !n.isLockedCache && n.matchesSearchCache).ToList();
+                    if (candidates.Count > 0)
+                    {
+                        var toExpand = candidates.RandomElement();
+                        toExpand.state = NodeState.Expanded;
+                        State.nodeStates[toExpand.def.defName] = NodeState.Expanded;
+                        physicsTemperature = Mathf.Max(physicsTemperature, 100f);
+                        DefsOf.BRM_ExpandingNode.PlayOneShotOnCamera();
+                    }
+                }
             }
             if (lastCurTab != CurTab)
             {
@@ -1212,7 +1260,7 @@ namespace BetterResearchMenu
                     if (n.isFoundation || n.isEmergence) n.collisionRadius = 104f;
                     else n.collisionRadius = 40f;
                 }
-                radiusCache[i] = n.collisionRadius;
+                radiusCache[i] = n.collisionRadius * n.customScale;
                 pX[i] = n.pos.x;
                 pY[i] = n.pos.y;
                 centerForceBaseCache[i] = 1.5f * centerForceMul * (n.edgeCount == 0 ? 3.0f : Mathf.Exp(-n.edgeCount * 0.4f));
@@ -1404,6 +1452,63 @@ namespace BetterResearchMenu
             return new Vector2(-cx / visible.Count, -cy / visible.Count);
         }
 
+        private void UpdateCustomSearch()
+        {
+            currentSearchResults.Clear();
+            var filterText = quickSearchWidget.filter.Text;
+            if (string.IsNullOrEmpty(filterText))
+            {
+                foreach (var node in nodes)
+                {
+                    node.matchesSearchCache = true;
+                }
+                quickSearchWidget.noResultsMatched = false;
+            }
+            else
+            {
+                string lower = filterText.ToLower();
+                foreach (var node in nodes)
+                {
+                    if (node.isPhantom || node.isGroupNode)
+                    {
+                        node.matchesSearchCache = true;
+                    }
+                    else
+                    {
+                        bool matches = false;
+                        if (node.cachedSearchTerms != null)
+                        {
+                            for (int i = 0; i < node.cachedSearchTerms.Count; i++)
+                            {
+                                if (node.cachedSearchTerms[i].Contains(lower))
+                                {
+                                    matches = true;
+                                    break;
+                                }
+                            }
+                        }
+                        node.matchesSearchCache = matches;
+                        if (matches && node.state != NodeState.Hidden)
+                        {
+                            currentSearchResults.Add(node);
+                        }
+                    }
+                }
+                currentSearchIndex = 0;
+                quickSearchWidget.noResultsMatched = currentSearchResults.Count == 0;
+            }
+        }
+
+        private void CenterOnSearchResult()
+        {
+            if (currentSearchResults.Count == 0) return;
+            var targetNode = currentSearchResults[currentSearchIndex];
+            selectedNode = targetNode;
+            selectedProject = (targetNode.isGroupNode || targetNode.isPhantom) ? null : targetNode.def;
+            cameraOffset = -targetNode.pos;
+            cachedCameraOffsets[$"{CurTab.defName}_{currentEra}_{GodModeReveal}"] = cameraOffset;
+        }
+
         public override void DoWindowContents(Rect inRect)
         {
             activeProjectsCacheDirty = true;
@@ -1426,19 +1531,13 @@ namespace BetterResearchMenu
             var controlAreaRect = new Rect(leftBarShift + 5f, graphRect.height - 145f, 250f, 160f);
             float searchBarWidth = 200f;
             float searchBarHeight = 24f;
-            var searchBarRect = new Rect(graphRect.width - searchBarWidth - 4f, 4f, searchBarWidth, searchBarHeight);
+            var searchBarRect = new Rect(graphRect.width - searchBarWidth - 34f, 4f, searchBarWidth, searchBarHeight);
+            var searchAreaExcl = new Rect(searchBarRect.x - 70f, searchBarRect.y, searchBarWidth + 104f, searchBarHeight);
             var pivot = new Vector2(graphRect.width / 2f, (inRect.height - TopBarHeight - 40f) / 2f);
 
             var panelRect = new Rect(inRect.width - RightPanelWidth, TopBarHeight, RightPanelWidth, graphRect.height);
 
-            bool searchActive = appliedSearchActive;
-            foreach (var node in nodes)
-            {
-                node.matchesSearchCache = node.isPhantom || node.isGroupNode || !searchActive
-                    || (node.def != null && matchingProjects.Contains(node.def));
-            }
-
-            HandleInputs(graphRect, controlAreaRect, panelRect, searchBarRect, inRect);
+            HandleInputs(graphRect, controlAreaRect, panelRect, searchAreaExcl, inRect);
 
             var mousePos = Event.current.mousePosition;
             var localMousePos = mousePos - new Vector2(graphRect.x, graphRect.y);
@@ -1452,7 +1551,7 @@ namespace BetterResearchMenu
                 if (advanceBtnRect.Contains(mousePos)) mouseOverAdvance = true;
             }
 
-            if (!mouseInPanel && !mouseOverLeftBar && !mouseOverAdvance && !controlAreaRect.Contains(localMousePos) && !searchBarRect.Contains(localMousePos) && graphRect.Contains(mousePos))
+            if (!mouseInPanel && !mouseOverLeftBar && !mouseOverAdvance && !controlAreaRect.Contains(localMousePos) && !searchAreaExcl.Contains(localMousePos) && graphRect.Contains(mousePos))
             {
                 ResearchNode hoveredNode = null;
                 for (var i = nodes.Count - 1; i >= 0; i--)
@@ -1474,12 +1573,12 @@ namespace BetterResearchMenu
                         var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
 
                         float baseSize = drawState == NodeState.Minimized ? NodeSizeMinimized : NodeSizeDot;
-                        nodeSize = node.GetNodeSize(baseSize, drawState) * zoom;
+                        nodeSize = node.GetNodeSize(baseSize, drawState) * zoom * node.customScale;
                         if (isEmergence && drawState == NodeState.Minimized) nodeSize *= 1.5f;
                     }
                     else
                     {
-                        nodeSize = ((isFoundation || isEmergence) ? NodeSizeExpanded * 2.6f : NodeSizeExpanded) * zoom;
+                        nodeSize = ((isFoundation || isEmergence) ? NodeSizeExpanded * 2.6f : NodeSizeExpanded) * zoom * node.customScale;
                     }
 
                     if (Vector2.Distance(screenPos, localMousePos) < nodeSize / 2f)
@@ -1730,7 +1829,7 @@ namespace BetterResearchMenu
                     var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
 
                     float baseSize = drawState == NodeState.Minimized ? NodeSizeMinimized : NodeSizeDot;
-                    var size = node.GetNodeSize(baseSize, drawState) * zoom;
+                    var size = node.GetNodeSize(baseSize, drawState) * zoom * node.customScale;
                     if (isEmergence && drawState == NodeState.Minimized) size *= 1.5f;
                     var buttonRect = new Rect(screenPos.x - size / 2f, screenPos.y - size / 2f, size, size);
 
@@ -1773,7 +1872,7 @@ namespace BetterResearchMenu
                     continue;
                 }
 
-                var nodeSize = ((isFoundation || isEmergence) ? NodeSizeExpanded * 2.6f : NodeSizeExpanded) * zoom;
+                var nodeSize = ((isFoundation || isEmergence) ? NodeSizeExpanded * 2.6f : NodeSizeExpanded) * zoom * node.customScale;
                 var nodeRect = new Rect(screenPos.x - nodeSize / 2f, screenPos.y - nodeSize / 2f, nodeSize, nodeSize);
 
                 if (node == selectedNode)
@@ -1797,7 +1896,36 @@ namespace BetterResearchMenu
             }
 
             DrawGraphControls(controlAreaRect);
-            quickSearchWidget.OnGUI(searchBarRect);
+
+            var fullscreenRect = new Rect(searchBarRect.xMax + 4f, searchBarRect.y, 24f, 24f);
+            if (Widgets.ButtonImage(fullscreenRect, TexFullscreen, isFullscreen ? Color.white : Color.gray))
+            {
+                isFullscreen = !isFullscreen;
+                if (isFullscreen) windowRect = new Rect(0, 0, UI.screenWidth, UI.screenHeight);
+                else SetInitialSizeAndPosition();
+                SoundDefOf.Click.PlayOneShotOnCamera();
+            }
+            TooltipHandler.TipRegion(fullscreenRect, "BRM_ToggleFullscreen".Translate());
+
+            quickSearchWidget.OnGUI(searchBarRect, UpdateCustomSearch, UpdateCustomSearch);
+
+            if (quickSearchWidget.filter.Active && currentSearchResults.Count > 0)
+            {
+                var nextRect = new Rect(searchBarRect.x - 18f, searchBarRect.y + 3f, 18f, 18f);
+                var prevRect = new Rect(nextRect.x - 18f, searchBarRect.y + 3f, 18f, 18f);
+                if (Widgets.ButtonImage(prevRect, TexPreviousResult))
+                {
+                    currentSearchIndex--;
+                    if (currentSearchIndex < 0) currentSearchIndex = Mathf.Max(0, currentSearchResults.Count - 1);
+                    CenterOnSearchResult();
+                }
+                if (Widgets.ButtonImage(nextRect, TexNextResult))
+                {
+                    currentSearchIndex++;
+                    if (currentSearchIndex >= currentSearchResults.Count) currentSearchIndex = 0;
+                    CenterOnSearchResult();
+                }
+            }
 
             Widgets.EndGroup();
 
@@ -2036,6 +2164,25 @@ namespace BetterResearchMenu
                 selectedNode = null;
                 selectedProject = null;
             }
+
+            var anchorRect = new Rect(panelRect.xMax - btnSize * 2 - 15f, panelRect.y + btnMargin, btnSize, btnSize);
+            if (Widgets.ButtonImage(anchorRect, TexAnchor, selectedNode.isAnchor ? Color.white : Color.gray))
+            {
+                selectedNode.isAnchor = !selectedNode.isAnchor;
+                if (selectedNode.isAnchor) State.anchoredNodes.Add(selectedNode.def.defName);
+                else State.anchoredNodes.Remove(selectedNode.def.defName);
+                SoundDefOf.Click.PlayOneShotOnCamera();
+            }
+
+            var scaleRect = new Rect(panelRect.xMax - btnSize * 2 - 130f, panelRect.y + btnMargin + 4f, 100f, 16f);
+            GUI.DrawTexture(new Rect(scaleRect.x - 20f, scaleRect.y - 4f, 24f, 24f), TexScale);
+            float newScale = Widgets.HorizontalSlider(scaleRect, selectedNode.customScale, 0.5f, 3f);
+            if (!Mathf.Approximately(newScale, selectedNode.customScale))
+            {
+                selectedNode.customScale = newScale;
+                State.nodeScales[selectedNode.def.defName] = newScale;
+                physicsTemperature = Mathf.Max(physicsTemperature, 100f);
+            }
             Text.Anchor = TextAnchor.UpperLeft;
             Text.Font = GameFont.Small;
             if (selectedProject != selectedNode.def)
@@ -2214,6 +2361,15 @@ namespace BetterResearchMenu
                 SoundDefOf.Click.PlayOneShotOnCamera();
             }
             TooltipHandler.TipRegion(settingsBtnRect, "BRM_OpenSettings".Translate());
+
+            var autoOpenBtnRect = new Rect(settingsBtnRect.xMax + ControlBtnGap, controlAreaRect.y, ControlBtnSize, ControlBtnSize);
+            if (Widgets.ButtonImage(autoOpenBtnRect, TexAutoOpen, autoOpenEnabled ? Color.white : Color.gray))
+            {
+                autoOpenEnabled = !autoOpenEnabled;
+                if (autoOpenEnabled) autoOpenTimer = BetterResearchMenuMod.settings.autoOpenRate;
+                SoundDefOf.Click.PlayOneShotOnCamera();
+            }
+            TooltipHandler.TipRegion(autoOpenBtnRect, "BRM_ToggleAutoOpen".Translate());
 
             float oldGrav = BetterResearchMenuMod.settings.centerForceMultiplier;
             float oldSpace = BetterResearchMenuMod.settings.spacingForceMultiplier;
