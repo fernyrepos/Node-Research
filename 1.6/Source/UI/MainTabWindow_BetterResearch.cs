@@ -1098,7 +1098,7 @@ namespace BetterResearchMenu
 
             for (int i = 0; i < ticksThisFrame; i++)
             {
-                PhysicsTick(0.02f, isFastForwarding);
+                PhysicsTick(Time.deltaTime, isFastForwarding);
             }
 
             foreach (var node in nodes)
