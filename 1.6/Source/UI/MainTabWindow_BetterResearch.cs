@@ -184,6 +184,7 @@ namespace BetterResearchMenu
         private static float[] pX = new float[1000];
         private static float[] pY = new float[1000];
         private static float[] centerForceBaseCache = new float[1000];
+        private static int[] parentCountCache = new int[1000];
         private static float[] invMassCache = new float[1000];
         private bool isPanning;
         private static Vector2 cameraOffset;
@@ -782,7 +783,7 @@ namespace BetterResearchMenu
                 node.cachedWeight = 1f + Mathf.Sqrt(node.childCount) * 0.5f;
             }
 
-            string layoutKey = $"{CurTab?.defName}_{(int)currentEra}";
+            string layoutKey = $"{CurTab?.defName}_{(int)currentEra}_outward_v2";
             bool wasSeeded = State.seededLayoutKeys.Contains(layoutKey);
             if (!wasSeeded)
             {
@@ -905,9 +906,11 @@ namespace BetterResearchMenu
                     }
                     if (parentCount > 0) parentCentroid /= parentCount;
 
-                    Vector2 outwardDir = Rand.UnitVector2;
+                    Vector2 outwardDir = parentCentroid.sqrMagnitude > 1f ? parentCentroid.normalized : Rand.UnitVector2;
+                    Vector2 tangent = new Vector2(-outwardDir.y, outwardDir.x);
+                    outwardDir = (outwardDir + tangent * Rand.Range(-0.45f, 0.45f)).normalized;
 
-                    child.pos = parentCentroid + outwardDir * 150f
+                    child.pos = parentCentroid + outwardDir * 260f
                         + new Vector2(Rand.Range(-20f, 20f), Rand.Range(-20f, 20f));
                     placed.Add(child);
                     ready.Enqueue(child);
@@ -1234,6 +1237,7 @@ namespace BetterResearchMenu
                 pX = new float[newSize];
                 pY = new float[newSize];
                 centerForceBaseCache = new float[newSize];
+                parentCountCache = new int[newSize];
                 invMassCache = new float[newSize];
             }
 
@@ -1263,7 +1267,20 @@ namespace BetterResearchMenu
                 radiusCache[i] = n.collisionRadius * n.customScale;
                 pX[i] = n.pos.x;
                 pY[i] = n.pos.y;
-                centerForceBaseCache[i] = 1.5f * centerForceMul * (n.edgeCount == 0 ? 3.0f : Mathf.Exp(-n.edgeCount * 0.4f));
+                int parentCount = Mathf.Max(0, n.edgeCount - n.childCount);
+                parentCountCache[i] = parentCount;
+                float centerWeight;
+                if (n.edgeCount == 0)
+                    centerWeight = 2.8f;
+                else if (n.isFoundation || n.isGroupNode)
+                    centerWeight = 1.1f;
+                else if (parentCount == 0 && n.childCount > 0)
+                    centerWeight = 0.7f;
+                else if (n.childCount >= 3)
+                    centerWeight = 0.22f;
+                else
+                    centerWeight = 0.04f;
+                centerForceBaseCache[i] = 1.5f * centerForceMul * centerWeight;
                 invMassCache[i] = 1f / n.cachedMass;
             }
 
@@ -1347,6 +1364,8 @@ namespace BetterResearchMenu
 
                 float attX = 0f;
                 float attY = 0f;
+                float branchX = 0f;
+                float branchY = 0f;
 
                 int edgeCount = node.nodeEdges.Count;
                 for (int e = 0; e < edgeCount; e++)
@@ -1375,17 +1394,76 @@ namespace BetterResearchMenu
                     float mul = (dist / k_att) * attMul * contForce;
                     attX += dx * mul;
                     attY += dy * mul;
+
+                    var parent = edge.from;
+                    var child = edge.to;
+                    float px = pX[parent.nodeIndex];
+                    float py = pY[parent.nodeIndex];
+                    float radialX = px;
+                    float radialY = py;
+                    float radialSq = radialX * radialX + radialY * radialY;
+                    if (radialSq < 100f)
+                    {
+                        radialX = pX[child.nodeIndex] - px;
+                        radialY = pY[child.nodeIndex] - py;
+                        radialSq = radialX * radialX + radialY * radialY;
+                    }
+                    if (radialSq < 1f) continue;
+
+                    float invRadialDist = 1f / Mathf.Sqrt(radialSq);
+                    radialX *= invRadialDist;
+                    radialY *= invRadialDist;
+
+                    float desiredLength = edge.isGroupEdge ? 320f : 280f;
+                    if (toCollapsed) desiredLength *= 0.85f;
+                    else if (fromCollapsed) desiredLength *= 1.15f;
+
+                    float desiredChildX = px + radialX * desiredLength;
+                    float desiredChildY = py + radialY * desiredLength;
+                    float branchMul = 0.9f * contForce;
+
+                    if (node == child)
+                    {
+                        float childForceX = (desiredChildX - nx) * branchMul;
+                        float childForceY = (desiredChildY - ny) * branchMul;
+                        float outwardProgress = ((nx - px) * radialX) + ((ny - py) * radialY);
+                        if (outwardProgress < desiredLength * 0.6f)
+                        {
+                            float push = (desiredLength * 0.6f - outwardProgress) * 3f * contForce;
+                            childForceX += radialX * push;
+                            childForceY += radialY * push;
+                        }
+                        branchX += childForceX;
+                        branchY += childForceY;
+                    }
+                    else if (node == parent)
+                    {
+                        branchX += (nx - desiredChildX) * branchMul * 0.15f;
+                        branchY += (ny - desiredChildY) * branchMul * 0.15f;
+                    }
                 }
 
                 float distToCenterSq = nx * nx + ny * ny;
-                float distanceMultiplier = 1f + (distToCenterSq / graphRadiusBoundSq);
+                float distanceMultiplier = 1f + Mathf.Max(0f, distToCenterSq - graphRadiusBoundSq) / graphRadiusBoundSq;
                 float centerForceFactor = centerForceBaseCache[ni] * distanceMultiplier;
 
                 float cx = -nx * centerForceFactor;
                 float cy = -ny * centerForceFactor;
 
-                float totalForceX = repX + attX + cx;
-                float totalForceY = repY + attY + cy;
+                if (parentCountCache[ni] > 0 && !(node.isFoundation || node.isGroupNode))
+                {
+                    float minChildRadius = graphRadiusBound * 0.45f;
+                    if (distToCenterSq > 1f && distToCenterSq < minChildRadius * minChildRadius)
+                    {
+                        float distToCenter = Mathf.Sqrt(distToCenterSq);
+                        float push = (minChildRadius - distToCenter) * 0.25f * centerForceMul;
+                        cx += (nx / distToCenter) * push;
+                        cy += (ny / distToCenter) * push;
+                    }
+                }
+
+                float totalForceX = repX + attX + branchX + cx;
+                float totalForceY = repY + attY + branchY + cy;
 
                 node.lastRepulsionForce = new Vector2(repX, repY);
                 node.lastAttractionForce = new Vector2(attX, attY);
