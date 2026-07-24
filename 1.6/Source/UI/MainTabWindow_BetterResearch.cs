@@ -85,6 +85,8 @@ namespace BetterResearchMenu
         public ResearchNode from;
         public ResearchNode to;
         public bool isGroupEdge;
+        public int childSlot;
+        public int siblingCount = 1;
     }
 
     [HotSwappable]
@@ -782,8 +784,9 @@ namespace BetterResearchMenu
                 node.cachedMass = 1f + Mathf.Pow(node.edgeCount, 1.2f) * 0.5f;
                 node.cachedWeight = 1f + Mathf.Sqrt(node.childCount) * 0.5f;
             }
+            AssignChildSlots();
 
-            string layoutKey = $"{CurTab?.defName}_{(int)currentEra}_outward_v2";
+            string layoutKey = $"{CurTab?.defName}_{(int)currentEra}_outward_v3";
             bool wasSeeded = State.seededLayoutKeys.Contains(layoutKey);
             if (!wasSeeded)
             {
@@ -906,9 +909,7 @@ namespace BetterResearchMenu
                     }
                     if (parentCount > 0) parentCentroid /= parentCount;
 
-                    Vector2 outwardDir = parentCentroid.sqrMagnitude > 1f ? parentCentroid.normalized : Rand.UnitVector2;
-                    Vector2 tangent = new Vector2(-outwardDir.y, outwardDir.x);
-                    outwardDir = (outwardDir + tangent * Rand.Range(-0.45f, 0.45f)).normalized;
+                    Vector2 outwardDir = GetFlowerDirection(edge, parentCentroid);
 
                     child.pos = parentCentroid + outwardDir * 260f
                         + new Vector2(Rand.Range(-20f, 20f), Rand.Range(-20f, 20f));
@@ -926,6 +927,51 @@ namespace BetterResearchMenu
             foreach (var node in nodes)
                 if (!node.isPhantom)
                     State.nodePositions[node.cachedKey] = node.pos;
+        }
+
+        private void AssignChildSlots()
+        {
+            foreach (var parent in nodes)
+            {
+                var childEdges = parent.nodeEdges
+                    .Where(e => e.from == parent && e.to.state != NodeState.Hidden)
+                    .OrderBy(e => e.to.cachedKey)
+                    .ToList();
+                int count = childEdges.Count;
+                for (int i = 0; i < count; i++)
+                {
+                    childEdges[i].childSlot = i;
+                    childEdges[i].siblingCount = Mathf.Max(1, count);
+                }
+            }
+        }
+
+        private Vector2 GetFlowerDirection(ResearchEdge edge, Vector2 parentPos)
+        {
+            int count = Mathf.Max(1, edge.siblingCount);
+            if (count == 1 && parentPos.sqrMagnitude > 1f)
+                return parentPos.normalized;
+
+            float phase = StableAngle(edge.from.cachedKey);
+            float angle = phase + (Mathf.PI * 2f * edge.childSlot / count);
+            return new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+        }
+
+        private static float StableAngle(string key)
+        {
+            unchecked
+            {
+                uint hash = 2166136261u;
+                if (key != null)
+                {
+                    for (int i = 0; i < key.Length; i++)
+                    {
+                        hash ^= key[i];
+                        hash *= 16777619u;
+                    }
+                }
+                return (hash / (float)uint.MaxValue) * Mathf.PI * 2f;
+            }
         }
 
         private NodeState GetNodeState(ResearchProjectDef def)
@@ -1399,20 +1445,9 @@ namespace BetterResearchMenu
                     var child = edge.to;
                     float px = pX[parent.nodeIndex];
                     float py = pY[parent.nodeIndex];
-                    float radialX = px;
-                    float radialY = py;
-                    float radialSq = radialX * radialX + radialY * radialY;
-                    if (radialSq < 100f)
-                    {
-                        radialX = pX[child.nodeIndex] - px;
-                        radialY = pY[child.nodeIndex] - py;
-                        radialSq = radialX * radialX + radialY * radialY;
-                    }
-                    if (radialSq < 1f) continue;
-
-                    float invRadialDist = 1f / Mathf.Sqrt(radialSq);
-                    radialX *= invRadialDist;
-                    radialY *= invRadialDist;
+                    Vector2 branchDir = GetFlowerDirection(edge, new Vector2(px, py));
+                    float radialX = branchDir.x;
+                    float radialY = branchDir.y;
 
                     float desiredLength = edge.isGroupEdge ? 320f : 280f;
                     if (toCollapsed) desiredLength *= 0.85f;
@@ -1460,6 +1495,15 @@ namespace BetterResearchMenu
                         cx += (nx / distToCenter) * push;
                         cy += (ny / distToCenter) * push;
                     }
+                }
+
+                float leashRadius = graphRadiusBound * 1.8f;
+                if (distToCenterSq > leashRadius * leashRadius)
+                {
+                    float distToCenter = Mathf.Sqrt(distToCenterSq);
+                    float leashPull = (distToCenter - leashRadius) * 0.8f * centerForceMul;
+                    cx -= (nx / distToCenter) * leashPull;
+                    cy -= (ny / distToCenter) * leashPull;
                 }
 
                 float totalForceX = repX + attX + branchX + cx;
