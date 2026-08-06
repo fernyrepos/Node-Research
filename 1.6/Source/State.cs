@@ -19,6 +19,7 @@ namespace BetterResearchMenu
         public static TechLevel startingScenarioTechLevel = TechLevel.Undefined;
         public static TechLevel currentSavedTechLevel = TechLevel.Undefined;
         public static bool initialized = false;
+        public static bool seededDefaultAnchors = false;
 
         public static void Clear()
         {
@@ -32,6 +33,15 @@ namespace BetterResearchMenu
             startingScenarioTechLevel = TechLevel.Undefined;
             currentSavedTechLevel = TechLevel.Undefined;
             initialized = false;
+            seededDefaultAnchors = false;
+        }
+
+        public static void EnsureDefaultAnchors()
+        {
+            if (seededDefaultAnchors) return;
+            anchoredNodes ??= [];
+            anchoredNodes.Add("VFET_Fire");
+            seededDefaultAnchors = true;
         }
 
         public static void ExposeData()
@@ -51,6 +61,7 @@ namespace BetterResearchMenu
             Scribe_Values.Look(ref startingScenarioTechLevel, "BRM_StartingScenarioTechLevel", TechLevel.Undefined);
             Scribe_Values.Look(ref currentSavedTechLevel, "BRM_CurrentSavedTechLevel", TechLevel.Undefined);
             Scribe_Values.Look(ref initialized, "BRM_Initialized", false);
+            Scribe_Values.Look(ref seededDefaultAnchors, "BRM_SeededDefaultAnchors", false);
 
             if (Scribe.mode == LoadSaveMode.ResolvingCrossRefs)
             {
@@ -69,6 +80,8 @@ namespace BetterResearchMenu
 
                 if (startingScenarioTechLevel == TechLevel.Undefined && Faction.OfPlayer != null)
                     startingScenarioTechLevel = Faction.OfPlayer.def.techLevel;
+
+                EnsureDefaultAnchors();
             }
         }
     }

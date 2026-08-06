@@ -29,6 +29,7 @@ namespace BetterResearchMenu
 
             if (State.initialized) return;
             State.initialized = true;
+            State.EnsureDefaultAnchors();
 
             var factionLevel = Faction.OfPlayer.def.techLevel;
             for (int i = 0; i < allDefs.Count; i++)
