@@ -57,6 +57,11 @@ namespace BetterResearchMenu
             ls.CheckboxLabeled("BRM_CollapseOnCompletion".Translate(), ref settings.collapseOnCompletion);
             ls.CheckboxLabeled("BRM_AutoOpenMenuOnFinish".Translate(), ref settings.autoOpenMenuOnFinish);
             ls.CheckboxLabeled("BRM_ForbidVanillaMenu".Translate(), ref settings.forbidVanillaMenu);
+            ls.CheckboxLabeled("BRM_HideDiscoveryLockedNodes".Translate(), ref settings.hideDiscoveryLockedNodes);
+            ls.CheckboxLabeled("BRM_ObscureDiscoveryLockedNodeDetails".Translate(), ref settings.obscureDiscoveryLockedNodeDetails);
+            ls.CheckboxLabeled("BRM_HideUnlockedWithSection".Translate(), ref settings.hideUnlockedWithSection);
+            ls.CheckboxLabeled("BRM_MakeRecollapsedNodesRed".Translate(), ref settings.makeRecollapsedNodesRed);
+            ls.CheckboxLabeled("BRM_ExemptRecollapsedNodesFromAutoOpen".Translate(), ref settings.exemptRecollapsedNodesFromAutoOpen);
 
             var maxNodesStr = settings.maxExpandedNodes <= 0 ? "BRM_Infinite".Translate().ToString() : settings.maxExpandedNodes.ToString();
             ls.Label("BRM_MaxExpandedNodes".Translate(maxNodesStr));

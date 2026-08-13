@@ -12,6 +12,11 @@
   <BRM_Infinite>Infinite</BRM_Infinite>
   <BRM_AutoOpenMenuOnFinish>Auto-open menu on project completion</BRM_AutoOpenMenuOnFinish>
   <BRM_ForbidVanillaMenu>Forbid access to vanilla research menu</BRM_ForbidVanillaMenu>
+  <BRM_HideDiscoveryLockedNodes>Hide nodes currently locked behind Discoveries</BRM_HideDiscoveryLockedNodes>
+  <BRM_ObscureDiscoveryLockedNodeDetails>Obscure details of nodes locked behind Discovery</BRM_ObscureDiscoveryLockedNodeDetails>
+  <BRM_HideUnlockedWithSection>Hide "Unlocked with another project" entries</BRM_HideUnlockedWithSection>
+  <BRM_MakeRecollapsedNodesRed>Make re-collapsed nodes red</BRM_MakeRecollapsedNodesRed>
+  <BRM_ExemptRecollapsedNodesFromAutoOpen>Exempt re-collapsed nodes from auto open</BRM_ExemptRecollapsedNodesFromAutoOpen>
   <BRM_AdvancementTiedTo>Advancement tied to: {0}</BRM_AdvancementTiedTo>
   <BRM_Foundations>Foundations</BRM_Foundations>
   <BRM_EraCompletion>Era completion</BRM_EraCompletion>
@@ -28,6 +33,7 @@
   <BRM_FoundationsComplete>{0}/{1} foundations complete</BRM_FoundationsComplete>
   <BRM_ProjectsComplete>{0}/{1} projects complete</BRM_ProjectsComplete>
   <BRM_RequiresDiscovery>This node requires discovery of something in the world.</BRM_RequiresDiscovery>
+  <BRM_Undiscovered>Undiscovered</BRM_Undiscovered>
   <BRM_Continue>Continue</BRM_Continue>
   <BRM_Foundation>FOUNDATION</BRM_Foundation>
   <BRM_Points>{0} points</BRM_Points>

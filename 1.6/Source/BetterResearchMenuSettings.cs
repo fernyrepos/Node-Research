@@ -20,6 +20,11 @@ namespace BetterResearchMenu
         public int maxExpandedNodes = -1;
         public bool autoOpenMenuOnFinish = true;
         public bool forbidVanillaMenu = false;
+        public bool hideDiscoveryLockedNodes = false;
+        public bool obscureDiscoveryLockedNodeDetails = false;
+        public bool hideUnlockedWithSection = true;
+        public bool makeRecollapsedNodesRed = true;
+        public bool exemptRecollapsedNodesFromAutoOpen = true;
         public AdvancementType advancementTiedTo = AdvancementType.Foundations;
         public float eraCompletionPercentage = 1f;
         public float autoOpenRate = 0.3f;
@@ -53,6 +58,11 @@ namespace BetterResearchMenu
             Scribe_Values.Look(ref maxExpandedNodes, "maxExpandedNodes", -1);
             Scribe_Values.Look(ref autoOpenMenuOnFinish, "autoOpenMenuOnFinish", true);
             Scribe_Values.Look(ref forbidVanillaMenu, "forbidVanillaMenu", false);
+            Scribe_Values.Look(ref hideDiscoveryLockedNodes, "hideDiscoveryLockedNodes", false);
+            Scribe_Values.Look(ref obscureDiscoveryLockedNodeDetails, "obscureDiscoveryLockedNodeDetails", false);
+            Scribe_Values.Look(ref hideUnlockedWithSection, "hideUnlockedWithSection", true);
+            Scribe_Values.Look(ref makeRecollapsedNodesRed, "makeRecollapsedNodesRed", true);
+            Scribe_Values.Look(ref exemptRecollapsedNodesFromAutoOpen, "exemptRecollapsedNodesFromAutoOpen", true);
             Scribe_Values.Look(ref advancementTiedTo, "advancementTiedTo", AdvancementType.Foundations);
             Scribe_Values.Look(ref eraCompletionPercentage, "eraCompletionPercentage", 1f);
             Scribe_Values.Look(ref autoOpenRate, "autoOpenRate", 0.3f);

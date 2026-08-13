@@ -156,6 +156,7 @@ namespace BetterResearchMenu
         private float RightPanelWidth = 300f;
         private float NodeSizeExpanded = 80f;
         private float BottomBarHeight => GetActiveProjectsCached(CurTab).Count > 0 ? 80f : 40f;
+        public static bool SuppressUnlockedWithGroups;
 
         public static bool GodModeReveal => BetterResearchMenuMod.settings.revealAllInGodMode && DebugSettings.godMode;
         private float NodeSizeMinimized = 40f;
@@ -168,6 +169,7 @@ namespace BetterResearchMenu
         private static Color ColorEdgeUnfinished = new ColorInt(95, 99, 102).ToColor;
         private static Color ColorNodeDot = new ColorInt(95, 99, 102).ToColor;
         private static Color ColorNodeMinimized = new ColorInt(95, 99, 102).ToColor;
+        private static Color ColorNodeCollapsedOpened = new ColorInt(118, 82, 82).ToColor;
         private static Color ColorBubbleProgress = new ColorInt(125, 183, 96).ToColor;
         private static Color ColorTechLevelTab = new ColorInt(29, 34, 38).ToColor;
         private static Color ColorTechLevelTabSelected = new ColorInt(89, 94, 98).ToColor;
@@ -230,6 +232,8 @@ namespace BetterResearchMenu
         private static Dictionary<ResearchProjectDef, List<Def>> cachedUnlockedDefs = [];
         private static Dictionary<ResearchProjectDef, CachedProjInfo> projInfoCache = new Dictionary<ResearchProjectDef, CachedProjInfo>();
         private static Dictionary<string, Texture2D> cachedCustomTextures = [];
+        private static MethodInfo isResearchLockedByDiscoveryMethod;
+        private static bool discoveryReflectionInitialized;
         private Dictionary<TechLevel, (List<ResearchProjectDef> all, int finished)> topBarDataCache = [];
         private int topBarCacheStateHash = -1;
 
@@ -301,6 +305,42 @@ namespace BetterResearchMenu
             }
             return list;
         }
+
+        private static bool IsResearchLockedByDiscovery(ResearchProjectDef proj)
+        {
+            if (proj == null) return false;
+            if (!discoveryReflectionInitialized)
+            {
+                discoveryReflectionInitialized = true;
+                var discoveryTracker = AccessTools.TypeByName("Discoveries.DiscoveryTracker");
+                isResearchLockedByDiscoveryMethod = discoveryTracker == null ? null : AccessTools.Method(discoveryTracker, "IsResearchLockedByDiscovery");
+            }
+            if (isResearchLockedByDiscoveryMethod == null) return false;
+            try
+            {
+                return (bool)isResearchLockedByDiscoveryMethod.Invoke(null, new object[] { proj });
+            }
+            catch (Exception ex)
+            {
+                Log.ErrorOnce("[BetterResearchMenu] Failed to query Discoveries lock state for " + proj.defName + ": " + ex, proj.defName.GetHashCode() ^ 0x71A4B0);
+                return false;
+            }
+        }
+
+        private static bool ShouldHideDiscoveryLockedNode(ResearchProjectDef proj) =>
+            !GodModeReveal && BetterResearchMenuMod.settings.hideDiscoveryLockedNodes && IsResearchLockedByDiscovery(proj);
+
+        private static bool ShouldObscureDiscoveryLockedNode(ResearchProjectDef proj) =>
+            !GodModeReveal && BetterResearchMenuMod.settings.obscureDiscoveryLockedNodeDetails && IsResearchLockedByDiscovery(proj);
+
+        private static bool IsCollapsedOpenedNode(ResearchNode node) =>
+            node != null && !node.isPhantom && !node.isGroupNode && node.state == NodeState.Minimized && (State.openedNodes?.Contains(node.def.defName) ?? false);
+
+        private static bool ShouldTintCollapsedOpenedNode(ResearchNode node) =>
+            BetterResearchMenuMod.settings.makeRecollapsedNodesRed && IsCollapsedOpenedNode(node);
+
+        private static bool ShouldExemptFromAutoOpen(ResearchNode node) =>
+            BetterResearchMenuMod.settings.exemptRecollapsedNodesFromAutoOpen && IsCollapsedOpenedNode(node);
 
         private static Texture2D GetCachedCustomTexture(string texPath)
         {
@@ -504,6 +544,11 @@ namespace BetterResearchMenu
                 if (CurTab == DefsOf.Main && currentEra != TechLevel.Undefined && def.techLevel != currentEra) continue;
 
                 var cacheKey = $"{def.defName}_{currentEra}";
+                if (ShouldHideDiscoveryLockedNode(def))
+                {
+                    State.nodePositions.Remove(cacheKey);
+                    continue;
+                }
                 if (!GodModeReveal && BetterResearchMenuMod.settings.restrictViewingFutureProjects && !def.IsFinished && !def.PrerequisitesCompleted)
                 {
                     State.nodePositions.Remove(cacheKey);
@@ -987,6 +1032,9 @@ namespace BetterResearchMenu
                 if (BetterResearchMenuMod.settings.restrictViewingFutureProjects && !def.IsFinished && !def.PrerequisitesCompleted)
                     return NodeState.Hidden;
 
+                if (ShouldHideDiscoveryLockedNode(def))
+                    return NodeState.Hidden;
+
                 if (def.HasModExtension<EmergenceExtension>())
                 {
                     if (!BetterResearchMenuMod.settings.enableEmergence) return NodeState.Hidden;
@@ -1075,7 +1123,7 @@ namespace BetterResearchMenu
                 if (autoOpenTimer <= 0f)
                 {
                     autoOpenTimer = BetterResearchMenuMod.settings.autoOpenRate;
-                    var candidates = nodes.Where(n => (n.state == NodeState.Minimized || n.state == NodeState.Dot) && !n.isPhantom && !n.isGroupNode && !n.isFinishedCache && !n.isLockedCache && n.matchesSearchCache).ToList();
+                    var candidates = nodes.Where(n => (n.state == NodeState.Minimized || n.state == NodeState.Dot) && !n.isPhantom && !n.isGroupNode && !n.isFinishedCache && !n.isLockedCache && !ShouldExemptFromAutoOpen(n) && !IsResearchLockedByDiscovery(n.def) && n.matchesSearchCache).ToList();
                     if (candidates.Count > 0)
                     {
                         var toExpand = candidates.RandomElement();
@@ -1115,6 +1163,7 @@ namespace BetterResearchMenu
             {
                 if (allDefs[i].IsFinished) currentStateHash++;
                 if (allDefs[i].PrerequisitesCompleted) currentStateHash++;
+                if (ShouldHideDiscoveryLockedNode(allDefs[i])) currentStateHash += 3;
             }
 
             if (lastStateCheckHash != currentStateHash)
@@ -1966,7 +2015,8 @@ namespace BetterResearchMenu
                     }
                     else
                     {
-                        GUI.color = drawState == NodeState.Minimized ? ColorNodeMinimized : ColorNodeDot;
+                        bool tintCollapsedOpened = ShouldTintCollapsedOpenedNode(node);
+                        GUI.color = tintCollapsedOpened ? ColorNodeCollapsedOpened : drawState == NodeState.Minimized ? ColorNodeMinimized : ColorNodeDot;
                         GUI.DrawTexture(buttonRect, TexBubble);
                         GUI.color = Color.white;
 
@@ -1979,7 +2029,7 @@ namespace BetterResearchMenu
                             }
                             else if (node.isPhantom is false && State.openedNodes.Contains(node.def.defName))
                             {
-                                DrawBubble(buttonRect, node.def, 4f * zoom, activeProjects, drawSilhouette: true);
+                                DrawBubble(buttonRect, node.def, 4f * zoom, activeProjects, drawSilhouette: true, bubbleTint: tintCollapsedOpened ? ColorNodeCollapsedOpened : null);
                             }
                             else
                             {
@@ -2316,11 +2366,18 @@ namespace BetterResearchMenu
                 descHeightCache.Clear();
             }
             var proj = selectedProject;
+            bool obscureDiscoveryDetails = ShouldObscureDiscoveryLockedNode(proj);
 
             float subY = panelRect.y + 50f;
             using (new TextBlock(GameFont.Medium, TextAnchor.MiddleLeft))
             {
-                Widgets.Label(new Rect(panelRect.x + 10f, subY, panelRect.width - 20f, 50f), ref subY, selectedProject.LabelCap);
+                Widgets.Label(new Rect(panelRect.x + 10f, subY, panelRect.width - 20f, 50f), ref subY, obscureDiscoveryDetails ? "BRM_Undiscovered".Translate() : selectedProject.LabelCap);
+            }
+            if (obscureDiscoveryDetails)
+            {
+                subY += 10f;
+                Widgets.DrawLineHorizontal(panelRect.x + 2f, subY, panelRect.width - 4f, Color.gray);
+                return;
             }
             subY += 10f;
             if (!descHeightCache.TryGetValue(proj, out float dHeight))
@@ -2346,7 +2403,15 @@ namespace BetterResearchMenu
             DrawTechprintInfo(rect2, ref subY);
 
             var outRect = new Rect(panelRect.x + 10f, subY, panelRect.width - 20f, panelRect.height - subY - 70f);
-            DrawProjectScrollView(outRect);
+            SuppressUnlockedWithGroups = BetterResearchMenuMod.settings.hideUnlockedWithSection;
+            try
+            {
+                DrawProjectScrollView(outRect);
+            }
+            finally
+            {
+                SuppressUnlockedWithGroups = false;
+            }
 
             var btnRect = new Rect(panelRect.x + 10f, panelRect.yMax - 60f, panelRect.width - 20f, 40f);
             DrawStartButton(btnRect);
@@ -2537,10 +2602,12 @@ namespace BetterResearchMenu
             InitPhysics(true);
         }
 
-        private void DrawBubble(Rect rect, ResearchProjectDef proj, float iconPadding, List<ResearchProjectDef> activeProjs, bool drawSilhouette = false)
+        private void DrawBubble(Rect rect, ResearchProjectDef proj, float iconPadding, List<ResearchProjectDef> activeProjs, bool drawSilhouette = false, Color? bubbleTint = null)
         {
             var tex = proj.IsFinished ? TexGreenBubble : activeProjs.Contains(proj) ? TexOrangeBubble : TexBubble;
+            if (bubbleTint.HasValue) GUI.color = bubbleTint.Value;
             GUI.DrawTexture(rect, tex);
+            if (bubbleTint.HasValue) GUI.color = Color.white;
 
             if (proj.ProgressPercent > 0f && !proj.IsFinished)
             {
