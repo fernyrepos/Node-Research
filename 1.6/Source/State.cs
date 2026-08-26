@@ -16,10 +16,15 @@ namespace BetterResearchMenu
         public static HashSet<string> anchoredNodes = [];
         public static Dictionary<string, float> nodeScales = [];
         public static HashSet<string> seededLayoutKeys = [];
+        public static List<string> researchQueue = [];
         public static TechLevel startingScenarioTechLevel = TechLevel.Undefined;
         public static TechLevel currentSavedTechLevel = TechLevel.Undefined;
         public static bool initialized = false;
         public static bool seededDefaultAnchors = false;
+        public static bool seenNodeTutorial = false;
+        public static HashSet<string> announcedNodes = [];
+        public static bool seenAnimalResearchTip = false;
+        public static bool seenRepublicResearchTip = false;
 
         public static void Clear()
         {
@@ -30,10 +35,15 @@ namespace BetterResearchMenu
             anchoredNodes = [];
             nodeScales = [];
             seededLayoutKeys = [];
+            researchQueue = [];
             startingScenarioTechLevel = TechLevel.Undefined;
             currentSavedTechLevel = TechLevel.Undefined;
             initialized = false;
             seededDefaultAnchors = false;
+            seenNodeTutorial = false;
+            announcedNodes = [];
+            seenAnimalResearchTip = false;
+            seenRepublicResearchTip = false;
         }
 
         public static void EnsureDefaultAnchors()
@@ -58,10 +68,15 @@ namespace BetterResearchMenu
             Scribe_Collections.Look(ref anchoredNodes, "BRM_AnchoredNodes", LookMode.Value);
             Scribe_Collections.Look(ref nodeScales, "BRM_NodeScales", LookMode.Value, LookMode.Value);
             Scribe_Collections.Look(ref seededLayoutKeys, "BRM_SeededLayoutKeys", LookMode.Value);
+            Scribe_Collections.Look(ref researchQueue, "BRM_ResearchQueue", LookMode.Value);
             Scribe_Values.Look(ref startingScenarioTechLevel, "BRM_StartingScenarioTechLevel", TechLevel.Undefined);
             Scribe_Values.Look(ref currentSavedTechLevel, "BRM_CurrentSavedTechLevel", TechLevel.Undefined);
             Scribe_Values.Look(ref initialized, "BRM_Initialized", false);
             Scribe_Values.Look(ref seededDefaultAnchors, "BRM_SeededDefaultAnchors", false);
+            Scribe_Values.Look(ref seenNodeTutorial, "BRM_SeenNodeTutorial", false);
+            Scribe_Collections.Look(ref announcedNodes, "BRM_AnnouncedNodes", LookMode.Value);
+            Scribe_Values.Look(ref seenAnimalResearchTip, "BRM_SeenAnimalResearchTip", false);
+            Scribe_Values.Look(ref seenRepublicResearchTip, "BRM_SeenRepublicResearchTip", false);
 
             if (Scribe.mode == LoadSaveMode.ResolvingCrossRefs)
             {
@@ -72,6 +87,8 @@ namespace BetterResearchMenu
                 anchoredNodes ??= [];
                 nodeScales ??= [];
                 seededLayoutKeys ??= [];
+                researchQueue ??= [];
+                announcedNodes ??= [];
 
                 if (currentSavedTechLevel != TechLevel.Undefined && Faction.OfPlayer != null)
                 {

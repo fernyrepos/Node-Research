@@ -2,10 +2,20 @@
 <Patch>
 
   <Operation Class="PatchOperationAddModExtension">
-    <xpath>Defs/ResearchProjectDef[defName="Ferny_Tables"]</xpath>
+    <xpath>Defs/ResearchProjectDef[defName="Ferny_Tables" or defName="Ferny_Chair" or defName="Ferny_Bridge" or defName="Ferny_Floors"]</xpath>
     <value>
       <li Class="BetterResearchMenu.ResearchFoundationExtension"></li>
     </value>
   </Operation>
+
+<Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/ResearchProjectDef[defName="Ferny_Floors"]</xpath>
+  <value>
+    <li Class="BetterResearchMenu.ResearchIconExtension">
+      <texPath>ResearchIcons/Floors</texPath>
+      <!-- <markerTexPath>marker icon</markerTexPath> -->
+    </li>
+  </value>
+</Operation>
 
 </Patch>

@@ -14,6 +14,7 @@ namespace BetterResearchMenu
         public bool disableVFETribalsAdvancement = true;
         public bool startCollapsed = false;
         public bool neverCollapseFoundations = true;
+        public bool dynamicScalingMode = true;
         public bool physicsEnabled = true;
 
         public bool collapseOnCompletion = false;
@@ -32,6 +33,7 @@ namespace BetterResearchMenu
         public bool revealAllInGodMode = true;
         public bool revealMysteryNodeOnHover = false;
         public bool enableEmergence = true;
+        public bool hideFinishedEmergenceNodes = true;
         public float emergenceCostNeolithic = 500f;
         public float emergenceCostMedieval = 5000f;
         public float emergenceCostIndustrial = 10000f;
@@ -52,6 +54,7 @@ namespace BetterResearchMenu
             Scribe_Values.Look(ref disableVFETribalsAdvancement, "disableVFETribalsAdvancement", true);
             Scribe_Values.Look(ref startCollapsed, "startCollapsed", false);
             Scribe_Values.Look(ref neverCollapseFoundations, "neverCollapseFoundations", true);
+            Scribe_Values.Look(ref dynamicScalingMode, "dynamicScalingMode", true);
             Scribe_Values.Look(ref physicsEnabled, "physicsEnabled", true);
 
             Scribe_Values.Look(ref collapseOnCompletion, "collapseOnCompletion", false);
@@ -70,6 +73,7 @@ namespace BetterResearchMenu
             Scribe_Values.Look(ref revealAllInGodMode, "revealAllInGodMode", true);
             Scribe_Values.Look(ref revealMysteryNodeOnHover, "revealMysteryNodeOnHover", false);
             Scribe_Values.Look(ref enableEmergence, "enableEmergence", true);
+            Scribe_Values.Look(ref hideFinishedEmergenceNodes, "hideFinishedEmergenceNodes", true);
             Scribe_Values.Look(ref emergenceCostNeolithic, "emergenceCostNeolithic", 500f);
             Scribe_Values.Look(ref emergenceCostMedieval, "emergenceCostMedieval", 5000f);
             Scribe_Values.Look(ref emergenceCostIndustrial, "emergenceCostIndustrial", 10000f);

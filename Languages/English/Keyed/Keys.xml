@@ -7,6 +7,8 @@
   <BRM_DisableVFETribalsAdvancement>Disable VFE Tribals tech advancement</BRM_DisableVFETribalsAdvancement>
   <BRM_StartCollapsed>All research nodes unlocked via scenario start collapsed</BRM_StartCollapsed>
   <BRM_NeverCollapseFoundations>Never auto-collapse foundation nodes</BRM_NeverCollapseFoundations>
+  <BRM_DynamicScalingMode>Dynamic scaling mode</BRM_DynamicScalingMode>
+  <BRM_DynamicScalingModeDesc>Foundations keep the normal node size and are drawn as squares instead of circles, and every node grows with the number of research projects that branch off it.</BRM_DynamicScalingModeDesc>
   <BRM_CollapseOnCompletion>Collapse node on research completion</BRM_CollapseOnCompletion>
   <BRM_MaxExpandedNodes>Max expanded nodes ({0})</BRM_MaxExpandedNodes>
   <BRM_Infinite>Infinite</BRM_Infinite>
@@ -37,6 +39,11 @@
   <BRM_Continue>Continue</BRM_Continue>
   <BRM_Foundation>FOUNDATION</BRM_Foundation>
   <BRM_Points>{0} points</BRM_Points>
+  <BRM_QueueTip>{0}\n{1}\n\nQueue position {2}.\n\nLeft-click: jump to this node\nRight-click: remove from queue</BRM_QueueTip>
+  <BRM_QueueStarted>Starting queued research: {0}</BRM_QueueStarted>
+  <BRM_QueueAlreadyFinished>{0} is already researched.</BRM_QueueAlreadyFinished>
+  <BRM_QueueAlreadyActive>{0} is already being researched.</BRM_QueueAlreadyActive>
+  <BRM_QueueNoAnomaly>Anomaly knowledge projects cannot be queued.</BRM_QueueNoAnomaly>
   <BRM_AllEras>All</BRM_AllEras>
   <BRM_CannotAccessEra>You cannot access these eras yet. Complete foundations and advance to reach these trees.</BRM_CannotAccessEra>
   <BRM_ActiveBasicResearch>Active basic research: {0}</BRM_ActiveBasicResearch>
@@ -50,6 +57,8 @@
   <BRM_RevealAllInGodMode>Reveal all nodes in God Mode</BRM_RevealAllInGodMode>
   <BRM_RevealMysteryNodeOnHover>Show details when hovering unknown nodes</BRM_RevealMysteryNodeOnHover>
   <BRM_EnableEmergence>Enable 'Emergence' advancing nodes</BRM_EnableEmergence>
+  <BRM_HideFinishedEmergenceNodes>Emergence nodes disappear after researched</BRM_HideFinishedEmergenceNodes>
+  <BRM_HideFinishedEmergenceNodesDesc>Once an emergence node is researched it is removed from the graph instead of sitting there completed.</BRM_HideFinishedEmergenceNodesDesc>
   <BRM_EmergenceCostNeolithic>Emergence cost (Neolithic):</BRM_EmergenceCostNeolithic>
   <BRM_EmergenceCostMedieval>Emergence cost (Medieval)</BRM_EmergenceCostMedieval>
   <BRM_EmergenceCostIndustrial>Emergence cost (Industrial):</BRM_EmergenceCostIndustrial>
@@ -60,4 +69,11 @@
   <BRM_EmergenceDesc>Advance to the {0} era.</BRM_EmergenceDesc>
   <BRM_RequiresAllFoundations>Requires all foundations to be completed.</BRM_RequiresAllFoundations>
   <BRM_RequiresEraCompletion>Requires {0} of era projects to be completed.</BRM_RequiresEraCompletion>
+  <BRM_TutorialHintCollapse>right-click to collapse nodes you are uninterested in</BRM_TutorialHintCollapse>
+  <BRM_TutorialHintQueue>shift-click to queue nodes for later</BRM_TutorialHintQueue>
+  <BRM_HintFoundationDiscovered>foundation discovered</BRM_HintFoundationDiscovered>
+  <BRM_HintReadyToEmerge>ready to emerge</BRM_HintReadyToEmerge>
+  <BRM_EmergenceThreatWarning>Emerging into the next era will allow factions of one higher era above yours to begin seeing you as a threat. Be prepared for additional confrontation if you choose to advance forward now.</BRM_EmergenceThreatWarning>
+  <BRM_AnimalResearchTip>To obtain research in the Animal era, select a project then perform a tribal gathering at a campfire.</BRM_AnimalResearchTip>
+  <BRM_RepublicResearchTip>This project has a significantly increased cost due to it being proprietary technology. An easier method of learning this technology would be visiting the republics in person on the world map.</BRM_RepublicResearchTip>
 </LanguageData>

@@ -12,7 +12,6 @@ namespace BetterResearchMenu
 
         static Startup()
         {
-
             if (DefsOf.Anomaly != null)
             {
                 foreach (var def in DefDatabase<ResearchProjectDef>.AllDefs)

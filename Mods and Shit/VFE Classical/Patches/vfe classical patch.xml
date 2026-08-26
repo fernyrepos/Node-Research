@@ -194,6 +194,7 @@
     <xpath>Defs/ResearchProjectDef[defName="VFEC_RoadBuilding"]</xpath>
     <value>
       <li Class="BetterResearchMenu.ResearchIconExtension">
+        <texPath>ResearchIcons/Roadshaping</texPath>
         <markerTexPath>ResearchIcons/EasternRepublic</markerTexPath>
       </li>
     </value>
@@ -328,5 +329,9 @@
       </li>
     </value>
   </Operation>
+
+
+
+
 
 </Patch>

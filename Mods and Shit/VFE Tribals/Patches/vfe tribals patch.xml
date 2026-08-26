@@ -9,7 +9,7 @@
   </Operation> -->
 
   <Operation Class="PatchOperationAddModExtension">
-    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Fire" or defName="VFET_Culture"]</xpath>
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Fire" or defName="VFET_Culture" or defName="VFET_AnimalHandling" or defName="VFET_Agriculture" or defName="VFET_Tribalwear" or defName="VFET_Mining" or defName="VFET_Construction" or defName="VFET_Furniture" or defName="VFET_Hunting" or defName="VFET_Weapons" or defName="VFET_Bow"]</xpath>
     <value>
       <li Class="BetterResearchMenu.ResearchFoundationExtension"></li>
     </value>
@@ -41,10 +41,50 @@
     <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Construction"]</xpath>
   <value>
     <li Class="BetterResearchMenu.ResearchIconExtension">
-      <texPath>ResearchIcons/Wall</texPath>
+      <texPath>ResearchIcons/Construction</texPath>
       <!-- <markerTexPath>marker icon</markerTexPath> -->
     </li>
   </value>
 </Operation>
 
+
+<Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Agriculture"]</xpath>
+  <value>
+    <li Class="BetterResearchMenu.ResearchIconExtension">
+      <texPath>ResearchIcons/Agriculture</texPath>
+      <!-- <markerTexPath>marker icon</markerTexPath> -->
+    </li>
+  </value>
+</Operation>
+
+<Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Mining"]</xpath>
+  <value>
+    <li Class="BetterResearchMenu.ResearchIconExtension">
+      <texPath>ResearchIcons/Mine</texPath>
+      <!-- <markerTexPath>marker icon</markerTexPath> -->
+    </li>
+  </value>
+</Operation>
+
+<Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_Hunting"]</xpath>
+  <value>
+    <li Class="BetterResearchMenu.ResearchIconExtension">
+      <texPath>ResearchIcons/Hunt</texPath>
+      <!-- <markerTexPath>marker icon</markerTexPath> -->
+    </li>
+  </value>
+</Operation>
+
+<Operation Class="PatchOperationAddModExtension">
+    <xpath>Defs/VFETribals.TribalResearchProjectDef[defName="VFET_AnimalHandling"]</xpath>
+  <value>
+    <li Class="BetterResearchMenu.ResearchIconExtension">
+      <texPath>ResearchIcons/Tame</texPath>
+      <!-- <markerTexPath>marker icon</markerTexPath> -->
+    </li>
+  </value>
+</Operation>
 </Patch>

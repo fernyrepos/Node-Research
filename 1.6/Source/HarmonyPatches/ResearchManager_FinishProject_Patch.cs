@@ -25,7 +25,17 @@ namespace BetterResearchMenu
                 DefsOf.BRM_Advancement.PlayOneShotOnCamera();
                 VFETribalsCompat.GrantCornerstonePoint();
                 if (Find.WindowStack.WindowOfType<MainTabWindow_BetterResearch>() is MainTabWindow_BetterResearch win)
-                    win.ForceEra(TechLevel.Undefined);
+                    win.ForceEra(TechLevel.Undefined, fastForward: true);
+                else
+                    MainTabWindow_BetterResearch.RequestFastForward();
+            }
+
+            if (!isEmergence && Current.ProgramState == ProgramState.Playing)
+            {
+                ResearchQueue.Remove(proj);
+                var manager = Find.ResearchManager;
+                if (manager.currentProj == null || manager.currentProj == proj)
+                    ResearchQueue.StartNext();
             }
 
             if (!isEmergence && Find.TickManager.TicksGame > 0 && BetterResearchMenuMod.settings.autoOpenMenuOnFinish && Current.ProgramState == ProgramState.Playing)

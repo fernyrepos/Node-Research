@@ -45,6 +45,8 @@ namespace BetterResearchMenu
         public bool isLockedCache;
         public bool matchesSearchCache;
         public int childCount;
+        public int expandedChildCount;
+        public float smoothedScale = -1f;
         public HashSet<ResearchNode> connectedNodes = new HashSet<ResearchNode>();
         public List<ResearchEdge> nodeEdges = new List<ResearchEdge>();
         public string cachedSubLabel;
@@ -54,7 +56,35 @@ namespace BetterResearchMenu
         public float lastCachedZoom = -1f;
         public List<string> cachedSearchTerms;
 
-        public float RadiusMultiplier => (this.isFoundation || this.isEmergence) ? 1.95f : 1.0f;
+        public const float DynamicScaleStep = 0.62f;
+        public const float DynamicScaleMax = 5f;
+
+        public static bool DynamicScalingMode => BetterResearchMenuMod.settings?.dynamicScalingMode ?? false;
+
+        public bool UsesLargeNodeStyle => this.isEmergence || (this.isFoundation && !DynamicScalingMode);
+        public bool DrawAsSquare => this.isFoundation && !this.isPhantom && DynamicScalingMode;
+
+        public float TargetDynamicScale => (DynamicScalingMode && !UsesLargeNodeStyle)
+            ? Mathf.Min(1f + (Mathf.Sqrt(expandedChildCount + 1f) - 1f) * DynamicScaleStep, DynamicScaleMax)
+            : 1f;
+
+        public float DynamicScale => smoothedScale < 0f ? TargetDynamicScale : smoothedScale;
+
+        public void UpdateSmoothedScale(float dt)
+        {
+            float target = TargetDynamicScale;
+            if (smoothedScale < 0f || dt >= 1f) { smoothedScale = target; return; }
+            smoothedScale = Mathf.Lerp(smoothedScale, target, 1f - Mathf.Exp(-9f * dt));
+            if (Mathf.Abs(smoothedScale - target) < 0.002f) smoothedScale = target;
+        }
+
+        public float GetDynamicScale(NodeState currentState)
+        {
+            float s = DynamicScale;
+            return (currentState == NodeState.Dot || currentState == NodeState.Minimized) ? Mathf.Sqrt(s) : s;
+        }
+
+        public float RadiusMultiplier => UsesLargeNodeStyle ? 1.95f : DynamicScale;
         public float SpacingMultiplier => (state == NodeState.Dot || state == NodeState.Minimized) ? 0.5f : 1.0f;
 
         public float GetCachedTitleHeight(GameFont font, float labelWidth, float zoom)
@@ -76,7 +106,7 @@ namespace BetterResearchMenu
 
         public float GetNodeSize(float baseSize, NodeState currentState)
         {
-            if (!this.isFoundation && !this.isEmergence) return baseSize;
+            if (!UsesLargeNodeStyle) return baseSize * GetDynamicScale(currentState);
             return currentState == NodeState.Minimized ? baseSize * 2.4375f : baseSize * 2.275f;
         }
     }
@@ -96,6 +126,9 @@ namespace BetterResearchMenu
         private static Texture2D TexBubble = ContentFinder<Texture2D>.Get("UI/Bubble");
         private static Texture2D TexGreenBubble = ContentFinder<Texture2D>.Get("UI/GreenBubble");
         private static Texture2D TexOrangeBubble = ContentFinder<Texture2D>.Get("UI/OrangeBubble");
+        private static Texture2D TexSquare = ContentFinder<Texture2D>.Get("UI/Square");
+        private static Texture2D TexGreenSquare = ContentFinder<Texture2D>.Get("UI/GreenSquare");
+        private static Texture2D TexOrangeSquare = ContentFinder<Texture2D>.Get("UI/OrangeSquare");
         private static readonly Texture2D TexBarBg = SolidColorMaterials.NewSolidColorTexture(new Color(0.1f, 0.1f, 0.1f));
         private static readonly Texture2D TexBarFill = SolidColorMaterials.NewSolidColorTexture(new ColorInt(125, 183, 96).ToColor);
         private static Texture2D TexCenter = ContentFinder<Texture2D>.Get("UI/CenterSlider");
@@ -150,6 +183,9 @@ namespace BetterResearchMenu
         private const float ControlBtnSize = 24f;
         private const float ControlBtnGap = 8f;
         private const float ZoomThreshold = 0.1f;
+        private const float HubPairRepulsion = 25f;
+        private const float HubCenterWeight = 1.1f;
+        private const float BaseCollisionBuffer = 20f;
 
         public static List<TechLevel> AllTechLevels = Enum.GetValues(typeof(TechLevel)).Cast<TechLevel>().Where(tl => tl != TechLevel.Undefined).ToList();
         private float TopBarHeight => CurTab == DefsOf.Main ? 45f : 0f;
@@ -177,12 +213,29 @@ namespace BetterResearchMenu
         private float ThicknessFinished = 3f;
         private float ThicknessUnfinished = 2f;
         private float IconPadding = 12f;
+        private const float QueueEntrySize = 36f;
+        private const float QueuePad = 5f;
+        private Rect queueStripRect;
+        private int queueDragIndex = -1;
+        private bool queueDragMoved;
+        private float queueDragStartY;
+        private float queueDragGrabOffset;
         private float physicsTemperature = 0f;
         private int fastForwardTicks = 0;
+        private static bool pendingFastForward = false;
+
+        private const float HintFadeIn = 0.8f;
+        private const float HintHold = 4f;
+        private const float HintFadeOut = 1.1f;
+        private const float HintGap = 0.5f;
+        private const float HintSegment = HintFadeIn + HintHold + HintFadeOut + HintGap;
+        private static readonly List<string> hintQueue = new List<string>();
+        private static float hintStartTime = -1f;
+        private static float tutorialEndTime = -1f;
         private bool[] adjacencyMatrixFlat;
         private static bool[] isHiddenCache = new bool[1000];
         private static bool[] isCollapsedCache = new bool[1000];
-        private static bool[] isHubCache = new bool[1000];
+        private static float[] hubFactorCache = new float[1000];
         private static float[] weightCache = new float[1000];
         private static float[] radiusCache = new float[1000];
         private static float[] pX = new float[1000];
@@ -227,6 +280,9 @@ namespace BetterResearchMenu
             currentEra = TechLevel.Undefined;
             cachedCameraOffsets.Clear();
             sessionInitialized = false;
+            hintQueue.Clear();
+            hintStartTime = -1f;
+            tutorialEndTime = -1f;
         }
 
         private static Dictionary<ResearchProjectDef, List<Def>> cachedUnlockedDefs = [];
@@ -501,16 +557,38 @@ namespace BetterResearchMenu
             }
 
             InitPhysics(true);
+
+            if (pendingFastForward)
+            {
+                pendingFastForward = false;
+                FastForwardPhysics(false);
+            }
         }
 
-        public void ForceEra(TechLevel era)
+        public void ForceEra(TechLevel era, bool fastForward = false)
         {
             currentEra = era;
             selectionLocked = false;
             selectedNode = null;
             selectedProject = null;
             zoom = 1f;
-            InitPhysics(true);
+            if (fastForward) FastForwardPhysics();
+            else InitPhysics(true);
+        }
+
+        public void FastForwardPhysics(bool reinit = true)
+        {
+            if (reinit) InitPhysics(false);
+            physicsTemperature = Mathf.Max(physicsTemperature, 200f);
+            fastForwardTicks = 60;
+        }
+
+        public static void RequestFastForward()
+        {
+            if (Find.WindowStack?.WindowOfType<MainTabWindow_BetterResearch>() is MainTabWindow_BetterResearch win)
+                win.FastForwardPhysics();
+            else
+                pendingFastForward = true;
         }
 
         public void InitPhysics(bool instant = false)
@@ -827,11 +905,11 @@ namespace BetterResearchMenu
             foreach (var node in nodes)
             {
                 node.cachedMass = 1f + Mathf.Pow(node.edgeCount, 1.2f) * 0.5f;
-                node.cachedWeight = 1f + Mathf.Sqrt(node.childCount) * 0.5f;
             }
+            RefreshExpandedChildCounts();
             AssignChildSlots();
 
-            string layoutKey = $"{CurTab?.defName}_{(int)currentEra}_outward_v3";
+            string layoutKey = $"{CurTab?.defName}_{(int)currentEra}_{(ResearchNode.DynamicScalingMode ? "dynamic" : "classic")}_v4";
             bool wasSeeded = State.seededLayoutKeys.Contains(layoutKey);
             if (!wasSeeded)
             {
@@ -902,32 +980,68 @@ namespace BetterResearchMenu
             UpdateCustomSearch();
         }
 
-        private void SeedHierarchicalPositions()
+        private static void SeedRootPositions(List<ResearchNode> roots)
         {
-            var foundations = nodes.Where(n => n.isFoundation && !n.isPhantom).ToList();
-            if (foundations.Count == 0) return;
-
-            float foundationRadius = 910f * Mathf.Sqrt(Mathf.Max(1, foundations.Count));
-            for (int i = 0; i < foundations.Count; i++)
+            if (roots.Count == 1)
             {
-                float angle = (float)i / foundations.Count * Mathf.PI * 2f;
-                foundations[i].pos = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * foundationRadius;
+                roots[0].pos = Vector2.zero;
+                return;
             }
 
-            var nodeSet = new HashSet<ResearchNode>(nodes.Where(n => !n.isPhantom && !n.isGroupNode));
-            var placed = new HashSet<ResearchNode>();
-            var pendingParentCount = new Dictionary<ResearchNode, int>();
-
-            foreach (var node in nodeSet)
+            if (!ResearchNode.DynamicScalingMode)
             {
-                if (node.isFoundation) { placed.Add(node); continue; }
+                float ringRadius = 910f * Mathf.Sqrt(roots.Count);
+                for (int i = 0; i < roots.Count; i++)
+                {
+                    float angle = (float)i / roots.Count * Mathf.PI * 2f;
+                    roots[i].pos = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * ringRadius;
+                }
+                return;
+            }
+
+            const float rootSpacing = 380f;
+            const float goldenAngle = 2.39996323f;
+            for (int i = 0; i < roots.Count; i++)
+            {
+                float radius = rootSpacing * Mathf.Sqrt(i);
+                float angle = i * goldenAngle;
+                roots[i].pos = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+            }
+        }
+
+        private void SeedHierarchicalPositions()
+        {
+            var candidates = nodes.Where(n => !n.isPhantom && !n.isGroupNode).ToList();
+            var nodeSet = new HashSet<ResearchNode>(candidates);
+
+            var parentCounts = new Dictionary<ResearchNode, int>(candidates.Count);
+            foreach (var node in candidates)
+            {
                 int inCount = 0;
                 foreach (var edge in node.nodeEdges)
                     if (edge.to == node && nodeSet.Contains(edge.from)) inCount++;
-                pendingParentCount[node] = inCount;
+                parentCounts[node] = inCount;
             }
 
-            var ready = new Queue<ResearchNode>(foundations);
+            List<ResearchNode> roots = ResearchNode.DynamicScalingMode
+                ? candidates.Where(n => parentCounts[n] == 0).ToList()
+                : candidates.Where(n => n.isFoundation).ToList();
+            if (roots.Count == 0) roots = candidates.Where(n => parentCounts[n] == 0).ToList();
+            if (roots.Count == 0) return;
+
+            SeedRootPositions(roots);
+
+            var rootSet = new HashSet<ResearchNode>(roots);
+            var placed = new HashSet<ResearchNode>();
+            var pendingParentCount = new Dictionary<ResearchNode, int>();
+
+            foreach (var node in candidates)
+            {
+                if (rootSet.Contains(node)) { placed.Add(node); continue; }
+                pendingParentCount[node] = parentCounts[node];
+            }
+
+            var ready = new Queue<ResearchNode>(roots);
 
             while (ready.Count > 0)
             {
@@ -1038,6 +1152,7 @@ namespace BetterResearchMenu
                 if (def.HasModExtension<EmergenceExtension>())
                 {
                     if (!BetterResearchMenuMod.settings.enableEmergence) return NodeState.Hidden;
+                    if (BetterResearchMenuMod.settings.hideFinishedEmergenceNodes && def.IsFinished) return NodeState.Hidden;
                     if (def.techLevel < State.startingScenarioTechLevel) return NodeState.Hidden;
                     var ext = def.GetModExtension<EmergenceExtension>();
                     if (ext.targetLevel <= State.startingScenarioTechLevel) return NodeState.Hidden;
@@ -1194,6 +1309,13 @@ namespace BetterResearchMenu
             bool isFastForwarding = fastForwardTicks > 0;
             if (fastForwardTicks > 0) fastForwardTicks--;
 
+            RefreshExpandedChildCounts();
+            float scaleDt = isFastForwarding ? 1f : Time.deltaTime;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                nodes[i].UpdateSmoothedScale(scaleDt);
+            }
+
             for (int i = 0; i < ticksThisFrame; i++)
             {
                 PhysicsTick(0.02f, isFastForwarding);
@@ -1299,9 +1421,27 @@ namespace BetterResearchMenu
 
             if (anyChanged)
             {
-                InitPhysics(false);
-                physicsTemperature = Mathf.Max(physicsTemperature, 200f);
-                fastForwardTicks = 60;
+                FastForwardPhysics();
+            }
+        }
+
+        private void RefreshExpandedChildCounts()
+        {
+            for (int i = 0; i < nodes.Count; i++)
+                nodes[i].expandedChildCount = 0;
+
+            for (int i = 0; i < edges.Count; i++)
+            {
+                var edge = edges[i];
+                if (edge.to.state == NodeState.Expanded)
+                    edge.from.expandedChildCount++;
+            }
+
+            bool dynamicMode = ResearchNode.DynamicScalingMode;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var n = nodes[i];
+                n.cachedWeight = 1f + Mathf.Sqrt(dynamicMode ? n.expandedChildCount : n.childCount) * 0.5f;
             }
         }
 
@@ -1320,13 +1460,16 @@ namespace BetterResearchMenu
             float graphRadiusBound = Mathf.Max(300f, Mathf.Sqrt(nodeCount) * 120f);
             float graphRadiusBoundSq = graphRadiusBound * graphRadiusBound;
             float dynamicHubBuffer = Mathf.Clamp(12000f / Mathf.Max(1, nodeCount), 150f, 600f);
+            float hubBufferSpan = dynamicHubBuffer - BaseCollisionBuffer;
+            float invDynamicScaleSpan = 1f / (ResearchNode.DynamicScaleMax - 1f);
+            bool dynamicMode = ResearchNode.DynamicScalingMode;
 
             if (isHiddenCache.Length < nodeCount)
             {
                 int newSize = nodeCount + 200;
                 isHiddenCache = new bool[newSize];
                 isCollapsedCache = new bool[newSize];
-                isHubCache = new bool[newSize];
+                hubFactorCache = new float[newSize];
                 weightCache = new float[newSize];
                 radiusCache = new float[newSize];
                 pX = new float[newSize];
@@ -1345,19 +1488,25 @@ namespace BetterResearchMenu
 
                 bool coll = n.state == NodeState.Dot || n.state == NodeState.Minimized;
                 isCollapsedCache[i] = coll;
-                isHubCache[i] = n.isFoundation || n.isGroupNode;
+                float dynScale = n.DynamicScale;
+
+                float hubFactor;
+                if (n.isGroupNode) hubFactor = 1f;
+                else if (!dynamicMode) hubFactor = n.isFoundation ? 1f : 0f;
+                else hubFactor = (dynScale - 1f) * invDynamicScaleSpan;
+                hubFactorCache[i] = hubFactor;
                 weightCache[i] = n.cachedWeight;
 
                 if (n.isGroupNode) n.collisionRadius = 25f;
                 else if (coll)
                 {
-                    if (n.isFoundation || n.isEmergence) n.collisionRadius = 52f;
-                    else n.collisionRadius = 20f;
+                    if (n.UsesLargeNodeStyle) n.collisionRadius = 52f;
+                    else n.collisionRadius = 20f * Mathf.Sqrt(dynScale);
                 }
                 else
                 {
-                    if (n.isFoundation || n.isEmergence) n.collisionRadius = 104f;
-                    else n.collisionRadius = 40f;
+                    if (n.UsesLargeNodeStyle) n.collisionRadius = 104f;
+                    else n.collisionRadius = 40f * dynScale;
                 }
                 radiusCache[i] = n.collisionRadius * n.customScale;
                 pX[i] = n.pos.x;
@@ -1367,14 +1516,19 @@ namespace BetterResearchMenu
                 float centerWeight;
                 if (n.edgeCount == 0)
                     centerWeight = 2.8f;
-                else if (n.isFoundation || n.isGroupNode)
-                    centerWeight = 1.1f;
-                else if (parentCount == 0 && n.childCount > 0)
-                    centerWeight = 0.7f;
-                else if (n.childCount >= 3)
-                    centerWeight = 0.22f;
                 else
-                    centerWeight = 0.04f;
+                {
+                    int scaleChildCount = dynamicMode ? n.expandedChildCount : n.childCount;
+                    if (parentCount == 0 && n.childCount > 0)
+                        centerWeight = 0.7f;
+                    else if (scaleChildCount >= 3)
+                        centerWeight = 0.22f;
+                    else
+                        centerWeight = 0.04f;
+
+                    if (hubFactor > 0f)
+                        centerWeight += (HubCenterWeight - centerWeight) * hubFactor;
+                }
                 centerForceBaseCache[i] = 1.5f * centerForceMul * centerWeight;
                 invMassCache[i] = 1f / n.cachedMass;
             }
@@ -1407,7 +1561,9 @@ namespace BetterResearchMenu
                 bool isCollapsed = isCollapsedCache[ni];
                 float nodeWeight = weightCache[ni];
                 float nodeRadius = radiusCache[ni];
-                bool nodeIsHub = isHubCache[ni];
+
+                float nodeHubRepulsion = (HubPairRepulsion - 1f) * hubFactorCache[ni];
+                float nodeHubBuffer = hubBufferSpan * hubFactorCache[ni];
 
                 float mulIfOtherColl = isCollapsed ? 2.0f : 0.15f;
                 float mulIfOtherNotColl = isCollapsed ? 0.15f : 1f;
@@ -1435,16 +1591,13 @@ namespace BetterResearchMenu
 
                     if (adjacencyMatrixFlat[niRow + oi]) forceMagSq *= 0.4f;
 
-                    bool otherIsHub = isHubCache[oi];
+                    float otherHub = hubFactorCache[oi];
 
-                    if (nodeIsHub && otherIsHub)
-                    {
-                        forceMagSq *= 25.0f;
-                    }
+                    forceMagSq *= 1f + nodeHubRepulsion * otherHub;
 
                     forceMagSq *= isCollapsedCache[oi] ? mulIfOtherColl : mulIfOtherNotColl;
 
-                    float buffer = (nodeIsHub && otherIsHub) ? dynamicHubBuffer : 20f;
+                    float buffer = BaseCollisionBuffer + nodeHubBuffer * otherHub;
                     float minDist = nodeRadius + radiusCache[oi] + buffer;
                     float minDistSq = minDist * minDist;
                     if (distSq < minDistSq)
@@ -1502,6 +1655,9 @@ namespace BetterResearchMenu
                     if (toCollapsed) desiredLength *= 0.85f;
                     else if (fromCollapsed) desiredLength *= 1.15f;
 
+                    if (ResearchNode.DynamicScalingMode)
+                        desiredLength += Mathf.Max(0f, radiusCache[parent.nodeIndex] - 40f);
+
                     float desiredChildX = px + radialX * desiredLength;
                     float desiredChildY = py + radialY * desiredLength;
                     float branchMul = 0.9f * contForce;
@@ -1534,13 +1690,14 @@ namespace BetterResearchMenu
                 float cx = -nx * centerForceFactor;
                 float cy = -ny * centerForceFactor;
 
-                if (parentCountCache[ni] > 0 && !(node.isFoundation || node.isGroupNode))
+                float outwardPushFactor = 1f - hubFactorCache[ni];
+                if (parentCountCache[ni] > 0 && outwardPushFactor > 0f)
                 {
                     float minChildRadius = graphRadiusBound * 0.45f;
                     if (distToCenterSq > 1f && distToCenterSq < minChildRadius * minChildRadius)
                     {
                         float distToCenter = Mathf.Sqrt(distToCenterSq);
-                        float push = (minChildRadius - distToCenter) * 0.25f * centerForceMul;
+                        float push = (minChildRadius - distToCenter) * 0.25f * centerForceMul * outwardPushFactor;
                         cx += (nx / distToCenter) * push;
                         cy += (ny / distToCenter) * push;
                     }
@@ -1708,12 +1865,16 @@ namespace BetterResearchMenu
 
             var panelRect = new Rect(inRect.width - RightPanelWidth, TopBarHeight, RightPanelWidth, graphRect.height);
 
-            HandleInputs(graphRect, controlAreaRect, panelRect, searchAreaExcl, inRect);
+            var queueProjects = ResearchQueue.Projects();
+            queueStripRect = GetQueueStripRect(inRect, queueProjects.Count, panelWidth);
+
+            HandleInputs(graphRect, controlAreaRect, panelRect, searchAreaExcl, inRect, queueStripRect);
 
             var mousePos = Event.current.mousePosition;
             var localMousePos = mousePos - new Vector2(graphRect.x, graphRect.y);
 
             bool mouseInPanel = selectedNode != null && panelRect.Contains(Event.current.mousePosition);
+            bool mouseOverQueue = queueStripRect.width > 0f && queueStripRect.Contains(mousePos);
             bool mouseOverLeftBar = LeftBarVisible && new Rect(0f, TopBarHeight, 55f, inRect.height - TopBarHeight - BottomBarHeight).Contains(mousePos);
             bool mouseOverAdvance = false;
             if (LeftBarVisible)
@@ -1722,7 +1883,7 @@ namespace BetterResearchMenu
                 if (advanceBtnRect.Contains(mousePos)) mouseOverAdvance = true;
             }
 
-            if (!mouseInPanel && !mouseOverLeftBar && !mouseOverAdvance && !controlAreaRect.Contains(localMousePos) && !searchAreaExcl.Contains(localMousePos) && graphRect.Contains(mousePos))
+            if (!mouseInPanel && !mouseOverQueue && !mouseOverLeftBar && !mouseOverAdvance && !controlAreaRect.Contains(localMousePos) && !searchAreaExcl.Contains(localMousePos) && graphRect.Contains(mousePos))
             {
                 ResearchNode hoveredNode = null;
                 for (var i = nodes.Count - 1; i >= 0; i--)
@@ -1732,14 +1893,13 @@ namespace BetterResearchMenu
                     if (!node.matchesSearchCache) continue;
                     var screenPos = (node.drawPos + cameraOffset) * zoom + pivot;
 
-                    bool isFoundation = node.isFoundation;
                     bool isEmergence = node.isEmergence;
                     float nodeSize;
 
                     if (node.state == NodeState.Dot || node.state == NodeState.Minimized)
                     {
                         var hitSize = NodeSizeMinimized * zoom;
-                        var isHovering = Vector2.Distance(screenPos, localMousePos) < hitSize / 2f;
+                        var isHovering = IsOverNode(screenPos, localMousePos, hitSize, node.DrawAsSquare);
                         bool isLocked = node.isLockedCache;
                         var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
 
@@ -1749,10 +1909,10 @@ namespace BetterResearchMenu
                     }
                     else
                     {
-                        nodeSize = ((isFoundation || isEmergence) ? NodeSizeExpanded * 2.6f : NodeSizeExpanded) * zoom * node.customScale;
+                        nodeSize = GetExpandedNodeSize(node);
                     }
 
-                    if (Vector2.Distance(screenPos, localMousePos) < nodeSize / 2f)
+                    if (IsOverNode(screenPos, localMousePos, nodeSize, node.DrawAsSquare))
                     {
                         hoveredNode = node;
                         break;
@@ -1772,7 +1932,11 @@ namespace BetterResearchMenu
                 {
                     if (hoveredNode != null && Event.current.button != 2)
                     {
-                        if (Event.current.button == 0)
+                        if (Event.current.button == 0 && Event.current.shift && !hoveredNode.isGroupNode && !hoveredNode.isPhantom)
+                        {
+                            ToggleQueueEntry(hoveredNode.def);
+                        }
+                        else if (Event.current.button == 0)
                         {
                             selectedNode = hoveredNode;
                             selectedProject = (hoveredNode.isGroupNode || hoveredNode.isPhantom) ? null : hoveredNode.def;
@@ -1845,6 +2009,8 @@ namespace BetterResearchMenu
 
                                 physicsTemperature = Mathf.Max(physicsTemperature, 100f);
                                 DefsOf.BRM_ExpandingNode.PlayOneShotOnCamera();
+                                AnnounceFirstPopOut(selectedNode);
+                                TriggerTutorialHints();
 
                                 var visibleChildren = selectedNode.nodeEdges.Where(e => e.from == selectedNode && e.to.state != NodeState.Hidden).Select(e => e.to).ToList();
                                 for (int i = 0; i < visibleChildren.Count; i++)
@@ -1875,9 +2041,9 @@ namespace BetterResearchMenu
                             {
                                 if (selectedNode.def.HasModExtension<EmergenceExtension>() && selectedNode.def.techLevel == TechLevel.Animal)
                                 {
-                                    SoundDefOf.ResearchStart.PlayOneShotOnCamera();
-                                    Find.ResearchManager.SetCurrentProject(selectedNode.def);
-                                    TutorSystem.Notify_Event("StartResearchProject");
+                                    var emergenceDef = selectedNode.def;
+                                    if (!ThemingCompat.TryWarnBeforeEmergence(emergenceDef, () => StartEmergenceProject(emergenceDef)))
+                                        StartEmergenceProject(emergenceDef);
                                 }
                                 else
                                 {
@@ -1989,14 +2155,14 @@ namespace BetterResearchMenu
                     continue;
                 }
 
-                bool isFoundation = node.isFoundation;
                 bool isEmergence = node.isEmergence;
                 bool isLocked = node.isLockedCache;
+                bool isSquare = node.DrawAsSquare;
 
                 if (node.state == NodeState.Dot || node.state == NodeState.Minimized)
                 {
                     var hitSize = NodeSizeMinimized * zoom;
-                    var isHovering = Vector2.Distance(screenPos, localMousePos) < hitSize / 2f;
+                    var isHovering = IsOverNode(screenPos, localMousePos, hitSize, isSquare);
                     var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
 
                     float baseSize = drawState == NodeState.Minimized ? NodeSizeMinimized : NodeSizeDot;
@@ -2007,7 +2173,7 @@ namespace BetterResearchMenu
                     if (node.isFinishedCache)
                     {
                         GUI.color = Color.green;
-                        GUI.DrawTexture(buttonRect, TexGreenBubble);
+                        GUI.DrawTexture(buttonRect, isSquare ? TexGreenSquare : TexGreenBubble);
                         GUI.color = Color.white;
                         Text.Anchor = TextAnchor.MiddleCenter;
                         Text.Font = zoom < 0.6f ? GameFont.Tiny : GameFont.Medium;
@@ -2017,7 +2183,7 @@ namespace BetterResearchMenu
                     {
                         bool tintCollapsedOpened = ShouldTintCollapsedOpenedNode(node);
                         GUI.color = tintCollapsedOpened ? ColorNodeCollapsedOpened : drawState == NodeState.Minimized ? ColorNodeMinimized : ColorNodeDot;
-                        GUI.DrawTexture(buttonRect, TexBubble);
+                        GUI.DrawTexture(buttonRect, isSquare ? TexSquare : TexBubble);
                         GUI.color = Color.white;
 
                         if (drawState == NodeState.Minimized)
@@ -2029,7 +2195,7 @@ namespace BetterResearchMenu
                             }
                             else if (node.isPhantom is false && State.openedNodes.Contains(node.def.defName))
                             {
-                                DrawBubble(buttonRect, node.def, 4f * zoom, activeProjects, drawSilhouette: true, bubbleTint: tintCollapsedOpened ? ColorNodeCollapsedOpened : null);
+                                DrawBubble(buttonRect, node.def, 4f * zoom, activeProjects, drawSilhouette: true, bubbleTint: tintCollapsedOpened ? ColorNodeCollapsedOpened : null, square: isSquare);
                             }
                             else
                             {
@@ -2044,20 +2210,20 @@ namespace BetterResearchMenu
                     continue;
                 }
 
-                var nodeSize = ((isFoundation || isEmergence) ? NodeSizeExpanded * 2.6f : NodeSizeExpanded) * zoom * node.customScale;
+                var nodeSize = GetExpandedNodeSize(node);
                 var nodeRect = new Rect(screenPos.x - nodeSize / 2f, screenPos.y - nodeSize / 2f, nodeSize, nodeSize);
 
                 if (node == selectedNode)
                 {
                     GUI.color = Color.white;
-                    GUI.DrawTexture(nodeRect.ExpandedBy(10f * zoom), TexBubble);
+                    GUI.DrawTexture(nodeRect.ExpandedBy(10f * zoom), isSquare ? TexSquare : TexBubble);
                     GUI.color = Color.white;
                 }
                 if (node.isPhantom is false)
                     State.openedNodes.Add(node.def.defName);
-                var padding = (isFoundation || isEmergence) ? IconPadding * 3f : IconPadding;
+                var padding = node.UsesLargeNodeStyle ? IconPadding * 3f : IconPadding * node.DynamicScale;
                 bool isSilhouetted = !node.isFinishedCache;
-                DrawBubble(nodeRect, node.def, padding * zoom, activeProjects, drawSilhouette: isSilhouetted);
+                DrawBubble(nodeRect, node.def, padding * zoom, activeProjects, drawSilhouette: isSilhouetted, square: isSquare);
 
                 if (zoom > ZoomThreshold)
                 {
@@ -2108,6 +2274,8 @@ namespace BetterResearchMenu
                 DrawLeftBar(inRect);
             }
             DrawBottomBar(inRect);
+            DrawResearchQueue(queueProjects);
+            DrawHintOverlay(inRect);
             if (selectedNode != null && !selectedNode.isPhantom && !selectedNode.isGroupNode)
             {
                 try
@@ -2123,7 +2291,7 @@ namespace BetterResearchMenu
             }
         }
 
-        private void HandleInputs(Rect graphRect, Rect sliderExcl, Rect panelExcl, Rect searchBarExcl, Rect inRect)
+        private void HandleInputs(Rect graphRect, Rect sliderExcl, Rect panelExcl, Rect searchBarExcl, Rect inRect, Rect queueExcl = default)
         {
             float zoomSensitivity = 0.05f;
             float minZoom = 0.05f;
@@ -2131,6 +2299,7 @@ namespace BetterResearchMenu
 
             Vector2 mousePos = Event.current.mousePosition;
             if (panelExcl.Contains(mousePos)) return;
+            if (queueExcl.width > 0f && queueExcl.Contains(mousePos)) return;
 
             if (LeftBarVisible)
             {
@@ -2256,7 +2425,7 @@ namespace BetterResearchMenu
                     var hasProjectsInNextEra = DefDatabase<ResearchProjectDef>.AllDefs.Any(x => x.techLevel == nextEra && x.tab == CurTab);
                     if (hasProjectsInNextEra)
                         currentEra = nextEra;
-                    InitPhysics(true);
+                    FastForwardPhysics();
                     DefsOf.BRM_Advancement.PlayOneShotOnCamera();
                     VFETribalsCompat.GrantCornerstonePoint();
                 }
@@ -2451,6 +2620,68 @@ namespace BetterResearchMenu
             }
         }
 
+        private void StartEmergenceProject(ResearchProjectDef def)
+        {
+            SoundDefOf.ResearchStart.PlayOneShotOnCamera();
+            Find.ResearchManager.SetCurrentProject(def);
+            TutorSystem.Notify_Event("StartResearchProject");
+        }
+
+        private void QueueHint(string text)
+        {
+            if (text.NullOrEmpty()) return;
+            hintQueue.Add(text);
+            if (hintQueue.Count == 1) hintStartTime = Time.realtimeSinceStartup;
+        }
+
+        private void TriggerTutorialHints()
+        {
+            if (State.seenNodeTutorial) return;
+            State.seenNodeTutorial = true;
+            QueueHint("BRM_TutorialHintCollapse".Translate());
+            QueueHint("BRM_TutorialHintQueue".Translate());
+            tutorialEndTime = hintStartTime + hintQueue.Count * HintSegment;
+        }
+
+        private void AnnounceFirstPopOut(ResearchNode node)
+        {
+            if (node == null || node.isPhantom || node.isGroupNode) return;
+            if (!node.isFoundation && !node.isEmergence) return;
+
+            if (!node.isEmergence && (!State.seenNodeTutorial || Time.realtimeSinceStartup < tutorialEndTime)) return;
+            State.announcedNodes ??= new HashSet<string>();
+            if (!State.announcedNodes.Add(node.def.defName)) return;
+            QueueHint((node.isEmergence ? "BRM_HintReadyToEmerge" : "BRM_HintFoundationDiscovered").Translate());
+        }
+
+        private void DrawHintOverlay(Rect inRect)
+        {
+            if (hintQueue.Count == 0) return;
+
+            float t = Time.realtimeSinceStartup - hintStartTime;
+            while (t >= HintSegment)
+            {
+                hintQueue.RemoveAt(0);
+                hintStartTime += HintSegment;
+                t -= HintSegment;
+                if (hintQueue.Count == 0) return;
+            }
+
+            float alpha;
+            if (t < HintFadeIn) alpha = t / HintFadeIn;
+            else if (t < HintFadeIn + HintHold) alpha = 1f;
+            else if (t < HintFadeIn + HintHold + HintFadeOut) alpha = 1f - (t - HintFadeIn - HintHold) / HintFadeOut;
+            else alpha = 0f;
+            if (alpha <= 0.001f) return;
+
+            var oldColor = GUI.color;
+            GUI.color = new Color(0.78f, 0.78f, 0.78f, Mathf.SmoothStep(0f, 1f, alpha));
+            var rect = new Rect(60f, TopBarHeight + 55f, Mathf.Min(620f, inRect.width - 120f), 60f);
+            using (new TextBlock(GameFont.Medium, TextAnchor.UpperLeft))
+                Widgets.Label(rect, hintQueue[0]);
+            GUI.color = oldColor;
+        }
+
         private void DrawBottomBar(Rect inRect)
         {
             float iconMargin = 10f;
@@ -2477,7 +2708,7 @@ namespace BetterResearchMenu
                 float startX = i * segWidth;
 
                 var bubbleRect = new Rect(startX + iconMargin, bottomRect.y + 10f, iconSize, iconSize);
-                DrawBubble(bubbleRect, proj, iconPadding, activeProjs);
+                DrawBubble(bubbleRect, proj, iconPadding, activeProjs, square: ResearchNode.DynamicScalingMode && proj.IsFoundation());
 
                 Text.Anchor = TextAnchor.MiddleLeft;
                 Text.Font = GameFont.Small;
@@ -2602,9 +2833,193 @@ namespace BetterResearchMenu
             InitPhysics(true);
         }
 
-        private void DrawBubble(Rect rect, ResearchProjectDef proj, float iconPadding, List<ResearchProjectDef> activeProjs, bool drawSilhouette = false, Color? bubbleTint = null)
+        private void ToggleQueueEntry(ResearchProjectDef def)
         {
-            var tex = proj.IsFinished ? TexGreenBubble : activeProjs.Contains(proj) ? TexOrangeBubble : TexBubble;
+            if (ResearchQueue.Contains(def))
+            {
+                ResearchQueue.Remove(def);
+                SoundDefOf.Tick_Low.PlayOneShotOnCamera();
+                return;
+            }
+            if (!ResearchQueue.CanQueue(def, out string reason))
+            {
+                if (!reason.NullOrEmpty()) Messages.Message(reason, MessageTypeDefOf.RejectInput, false);
+                return;
+            }
+            ResearchQueue.Add(def);
+            SoundDefOf.Tick_High.PlayOneShotOnCamera();
+        }
+
+        private Rect GetQueueStripRect(Rect inRect, int count, float panelWidth)
+        {
+            if (count <= 0) return default;
+            float width = QueueEntrySize + QueuePad * 2f;
+
+            float x = inRect.width - panelWidth - width - 6f;
+
+            float y = TopBarHeight + 36f;
+            float maxHeight = Mathf.Max(QueueEntrySize + QueuePad * 2f, inRect.height - y - BottomBarHeight - 10f);
+            float height = Mathf.Min(QueuePad + count * (QueueEntrySize + QueuePad), maxHeight);
+            return new Rect(x, y, width, height);
+        }
+
+        private static int QueueSlotOf(int index, int dragIndex, int dragTarget)
+        {
+            if (dragIndex < 0 || dragTarget < 0) return index;
+            if (index == dragIndex) return dragTarget;
+            if (dragIndex < dragTarget && index > dragIndex && index <= dragTarget) return index - 1;
+            if (dragIndex > dragTarget && index >= dragTarget && index < dragIndex) return index + 1;
+            return index;
+        }
+
+        private void DrawResearchQueue(List<ResearchProjectDef> queue)
+        {
+            if (queue.Count == 0 || queueStripRect.width <= 0f)
+            {
+                queueDragIndex = -1;
+                return;
+            }
+
+            var rect = queueStripRect;
+            Widgets.DrawBoxSolid(rect, new Color(0f, 0f, 0f, 0.5f));
+            GUI.color = new Color(1f, 1f, 1f, 0.12f);
+            Widgets.DrawBox(rect);
+            GUI.color = Color.white;
+
+            var activeProjects = GetActiveProjectsCached(CurTab);
+            float stride = QueueEntrySize + QueuePad;
+            float firstSlotY = rect.y + QueuePad;
+            int slots = Mathf.Max(1, Mathf.FloorToInt((rect.height - QueuePad) / stride));
+            bool overflow = queue.Count > slots;
+            int shown = overflow ? slots - 1 : queue.Count;
+
+            Vector2 mousePos = Event.current.mousePosition;
+            if (queueDragIndex >= shown) queueDragIndex = -1;
+
+            float carriedY = 0f;
+            int dragTarget = -1;
+            if (queueDragIndex >= 0)
+            {
+                carriedY = Mathf.Clamp(mousePos.y - queueDragGrabOffset, firstSlotY, firstSlotY + (shown - 1) * stride);
+                dragTarget = Mathf.Clamp(Mathf.RoundToInt((carriedY - firstSlotY) / stride), 0, shown - 1);
+                if (Mathf.Abs(mousePos.y - queueDragStartY) > 4f) queueDragMoved = true;
+            }
+
+            for (int i = 0; i < shown; i++)
+            {
+                var proj = queue[i];
+                int slot = QueueSlotOf(i, queueDragIndex, dragTarget);
+                bool carried = i == queueDragIndex && queueDragMoved;
+                float entryY = carried ? carriedY : firstSlotY + slot * stride;
+                var entryRect = new Rect(rect.x + QueuePad, entryY, QueueEntrySize, QueueEntrySize);
+
+                DrawBubble(entryRect, proj, 7f, activeProjects, drawSilhouette: false,
+                    square: ResearchNode.DynamicScalingMode && proj.IsFoundation());
+
+                using (new TextBlock(GameFont.Tiny, TextAnchor.LowerRight))
+                {
+                    GUI.color = new Color(1f, 1f, 1f, 0.75f);
+                    Widgets.Label(entryRect, (slot + 1).ToString());
+                    GUI.color = Color.white;
+                }
+
+                if (carried)
+                {
+                    Widgets.DrawHighlight(entryRect);
+                }
+                else if (queueDragIndex < 0 && Mouse.IsOver(entryRect))
+                {
+                    Widgets.DrawHighlight(entryRect);
+                    TooltipHandler.TipRegion(entryRect, "BRM_QueueTip".Translate(
+                        proj.LabelCap, "BRM_Points".Translate(proj.Cost), slot + 1));
+                }
+
+                if (Event.current.type == EventType.MouseDown && entryRect.Contains(mousePos))
+                {
+                    if (Event.current.button == 1)
+                    {
+                        ResearchQueue.Remove(proj);
+                        SoundDefOf.Tick_Low.PlayOneShotOnCamera();
+                    }
+                    else if (Event.current.button == 0)
+                    {
+                        queueDragIndex = i;
+                        queueDragMoved = false;
+                        queueDragStartY = mousePos.y;
+                        queueDragGrabOffset = mousePos.y - entryRect.y;
+                    }
+                    Event.current.Use();
+                }
+            }
+
+            if (queueDragIndex >= 0 && Event.current.rawType == EventType.MouseUp)
+            {
+                if (queueDragMoved)
+                {
+                    if (dragTarget >= 0 && dragTarget != queueDragIndex)
+                        MoveQueueEntry(queue[queueDragIndex], queue[dragTarget]);
+                }
+                else
+                {
+                    JumpToProject(queue[queueDragIndex]);
+                }
+                queueDragIndex = -1;
+                queueDragMoved = false;
+                if (Event.current.type == EventType.MouseUp) Event.current.Use();
+            }
+
+            if (overflow)
+            {
+                var moreRect = new Rect(rect.x + QueuePad, firstSlotY + shown * stride, QueueEntrySize, QueueEntrySize);
+                using (new TextBlock(GameFont.Tiny, TextAnchor.MiddleCenter))
+                {
+                    GUI.color = new Color(1f, 1f, 1f, 0.6f);
+                    Widgets.Label(moreRect, "+" + (queue.Count - shown));
+                    GUI.color = Color.white;
+                }
+            }
+        }
+
+        private void MoveQueueEntry(ResearchProjectDef moved, ResearchProjectDef target)
+        {
+            var names = ResearchQueue.DefNames;
+            int from = names.IndexOf(moved.defName);
+            int to = names.IndexOf(target.defName);
+            if (from < 0 || to < 0 || from == to) return;
+
+            names.RemoveAt(from);
+            names.Insert(to, moved.defName);
+            SoundDefOf.Tick_High.PlayOneShotOnCamera();
+        }
+
+        private void JumpToProject(ResearchProjectDef proj)
+        {
+            SoundDefOf.Click.PlayOneShotOnCamera();
+            var node = nodes.FirstOrDefault(n => !n.isPhantom && !n.isGroupNode && n.def == proj);
+            if (node == null) return;
+
+            selectedNode = node;
+            selectedProject = proj;
+            selectionLocked = true;
+            cameraOffset = -node.pos;
+            cachedCameraOffsets[$"{CurTab.defName}_{currentEra}_{GodModeReveal}"] = cameraOffset;
+        }
+
+        private float GetExpandedNodeSize(ResearchNode node)
+        {
+            float baseSize = node.UsesLargeNodeStyle ? NodeSizeExpanded * 2.6f : NodeSizeExpanded * node.DynamicScale;
+            return baseSize * zoom * node.customScale;
+        }
+
+        private static bool IsOverNode(Vector2 screenPos, Vector2 mousePos, float size, bool square)
+        {
+            if (!square) return Vector2.Distance(screenPos, mousePos) < size / 2f;
+            return Mathf.Abs(mousePos.x - screenPos.x) < size / 2f && Mathf.Abs(mousePos.y - screenPos.y) < size / 2f;
+        }
+
+        private void DrawBubble(Rect rect, ResearchProjectDef proj, float iconPadding, List<ResearchProjectDef> activeProjs, bool drawSilhouette = false, Color? bubbleTint = null, bool square = false)
+        {
+            var tex = proj.IsFinished ? (square ? TexGreenSquare : TexGreenBubble) : activeProjs.Contains(proj) ? (square ? TexOrangeSquare : TexOrangeBubble) : (square ? TexSquare : TexBubble);
             if (bubbleTint.HasValue) GUI.color = bubbleTint.Value;
             GUI.DrawTexture(rect, tex);
             if (bubbleTint.HasValue) GUI.color = Color.white;
@@ -2614,7 +3029,7 @@ namespace BetterResearchMenu
                 var progressPercent = proj.ProgressPercent;
                 GUI.color = ColorBubbleProgress;
                 var fillRect = new Rect(rect.x, rect.y + rect.height * (1f - progressPercent), rect.width, rect.height * progressPercent);
-                GUI.DrawTextureWithTexCoords(fillRect, TexBubble, new Rect(0f, 0f, 1f, progressPercent));
+                GUI.DrawTextureWithTexCoords(fillRect, square ? TexSquare : TexBubble, new Rect(0f, 0f, 1f, progressPercent));
                 GUI.color = Color.white;
             }
 

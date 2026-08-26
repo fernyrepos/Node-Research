@@ -2,7 +2,7 @@
 <Patch>
 
   <Operation Class="PatchOperationAddModExtension">
-    <xpath>Defs/ResearchProjectDef[defName="Ferny_FueledStove"]</xpath>
+    <xpath>Defs/ResearchProjectDef[defName="Ferny_FueledStove" or defName="Ferny_SimpleMeals"]</xpath>
     <value>
       <li Class="BetterResearchMenu.ResearchFoundationExtension"></li>
     </value>

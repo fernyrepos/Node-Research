@@ -52,6 +52,7 @@ namespace BetterResearchMenu
             ls.CheckboxLabeled("BRM_EnableTechAdvancement".Translate(), ref settings.enableTechAdvancement);
             ls.CheckboxLabeled("BRM_StartCollapsed".Translate(), ref settings.startCollapsed);
             ls.CheckboxLabeled("BRM_NeverCollapseFoundations".Translate(), ref settings.neverCollapseFoundations);
+            ls.CheckboxLabeled("BRM_DynamicScalingMode".Translate(), ref settings.dynamicScalingMode, "BRM_DynamicScalingModeDesc".Translate());
 
             ls.Gap();
             ls.CheckboxLabeled("BRM_CollapseOnCompletion".Translate(), ref settings.collapseOnCompletion);
@@ -100,6 +101,9 @@ namespace BetterResearchMenu
 
             if (settings.enableEmergence)
             {
+                ls.CheckboxLabeled("BRM_HideFinishedEmergenceNodes".Translate(), ref settings.hideFinishedEmergenceNodes,
+                    "BRM_HideFinishedEmergenceNodesDesc".Translate());
+
                 ls.Label("BRM_EmergenceCostNeolithic".Translate());
                 string neolithicBuffer = settings.emergenceCostNeolithic.ToString();
                 ls.TextFieldNumeric(ref settings.emergenceCostNeolithic, ref neolithicBuffer);

@@ -16,10 +16,9 @@ namespace BetterResearchMenu
                 {
                     __result = __instance.Cost;
                 }
-            }   
+            }
             catch
             {
-
             }
         }
     }
