@@ -47,6 +47,7 @@ namespace BetterResearchMenu
         public int childCount;
         public int expandedChildCount;
         public float smoothedScale = -1f;
+        public bool isRecollapsedCache;
         public HashSet<ResearchNode> connectedNodes = new HashSet<ResearchNode>();
         public List<ResearchEdge> nodeEdges = new List<ResearchEdge>();
         public string cachedSubLabel;
@@ -58,6 +59,7 @@ namespace BetterResearchMenu
 
         public const float DynamicScaleStep = 0.62f;
         public const float DynamicScaleMax = 5f;
+        public const float RecollapsedScale = 0.5f;
 
         public static bool DynamicScalingMode => BetterResearchMenuMod.settings?.dynamicScalingMode ?? false;
 
@@ -70,6 +72,12 @@ namespace BetterResearchMenu
 
         public float DynamicScale => smoothedScale < 0f ? TargetDynamicScale : smoothedScale;
 
+        public void RefreshRecollapsed()
+        {
+            isRecollapsedCache = state == NodeState.Minimized && !isPhantom && !isGroupNode
+                && (isFinishedCache || (State.openedNodes?.Contains(def.defName) ?? false));
+        }
+
         public void UpdateSmoothedScale(float dt)
         {
             float target = TargetDynamicScale;
@@ -81,7 +89,9 @@ namespace BetterResearchMenu
         public float GetDynamicScale(NodeState currentState)
         {
             float s = DynamicScale;
-            return (currentState == NodeState.Dot || currentState == NodeState.Minimized) ? Mathf.Sqrt(s) : s;
+            if (currentState != NodeState.Dot && currentState != NodeState.Minimized) return s;
+            s = Mathf.Sqrt(s);
+            return isRecollapsedCache ? s * RecollapsedScale : s;
         }
 
         public float RadiusMultiplier => UsesLargeNodeStyle ? 1.95f : DynamicScale;
@@ -107,7 +117,8 @@ namespace BetterResearchMenu
         public float GetNodeSize(float baseSize, NodeState currentState)
         {
             if (!UsesLargeNodeStyle) return baseSize * GetDynamicScale(currentState);
-            return currentState == NodeState.Minimized ? baseSize * 2.4375f : baseSize * 2.275f;
+            if (currentState != NodeState.Minimized) return baseSize * 2.275f;
+            return isRecollapsedCache ? baseSize * 2.4375f * RecollapsedScale : baseSize * 2.4375f;
         }
     }
     public class ResearchEdge
@@ -516,6 +527,7 @@ namespace BetterResearchMenu
             if (node == null || node.isGroupNode || node.isPhantom) return;
             node.state = NodeState.Minimized;
             State.nodeStates[node.def.defName] = node.state;
+            node.RefreshRecollapsed();
             node.velocity = Vector2.zero;
 
             physicsTemperature = Mathf.Max(physicsTemperature, 100f);
@@ -1442,6 +1454,7 @@ namespace BetterResearchMenu
             {
                 var n = nodes[i];
                 n.cachedWeight = 1f + Mathf.Sqrt(dynamicMode ? n.expandedChildCount : n.childCount) * 0.5f;
+                n.RefreshRecollapsed();
             }
         }
 
@@ -1502,6 +1515,7 @@ namespace BetterResearchMenu
                 {
                     if (n.UsesLargeNodeStyle) n.collisionRadius = 52f;
                     else n.collisionRadius = 20f * Mathf.Sqrt(dynScale);
+                    if (n.isRecollapsedCache) n.collisionRadius *= ResearchNode.RecollapsedScale;
                 }
                 else
                 {
@@ -1898,7 +1912,7 @@ namespace BetterResearchMenu
 
                     if (node.state == NodeState.Dot || node.state == NodeState.Minimized)
                     {
-                        var hitSize = NodeSizeMinimized * zoom;
+                        var hitSize = NodeSizeMinimized * zoom * (node.isRecollapsedCache ? ResearchNode.RecollapsedScale : 1f);
                         var isHovering = IsOverNode(screenPos, localMousePos, hitSize, node.DrawAsSquare);
                         bool isLocked = node.isLockedCache;
                         var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
@@ -1988,6 +2002,7 @@ namespace BetterResearchMenu
                             {
                                 selectedNode.state = NodeState.Expanded;
                                 State.nodeStates[selectedNode.def.defName] = selectedNode.state;
+                                selectedNode.RefreshRecollapsed();
 
                                 if (BetterResearchMenuMod.settings.maxExpandedNodes > 0)
                                 {
@@ -2161,7 +2176,7 @@ namespace BetterResearchMenu
 
                 if (node.state == NodeState.Dot || node.state == NodeState.Minimized)
                 {
-                    var hitSize = NodeSizeMinimized * zoom;
+                    var hitSize = NodeSizeMinimized * zoom * (node.isRecollapsedCache ? ResearchNode.RecollapsedScale : 1f);
                     var isHovering = IsOverNode(screenPos, localMousePos, hitSize, isSquare);
                     var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
 
@@ -3077,7 +3092,8 @@ namespace BetterResearchMenu
                         }
                     }
                     if (iconColor.HasValue) GUI.color = iconColor.Value;
-                    Widgets.DefIcon(iconRect, iconDef, null, 1f, null, false, iconColor, null);
+                    if (!TryDrawHalfTurnIcon(iconRect, iconDef, iconColor))
+                        Widgets.DefIcon(iconRect, iconDef, null, 1f, null, false, iconColor, null);
                     if (iconColor.HasValue) GUI.color = Color.white;
                     if (terrain != null)
                     {
@@ -3103,6 +3119,49 @@ namespace BetterResearchMenu
                 float mSize = rect.width * 0.45f;
                 GUI.DrawTexture(new Rect(rect.xMax - mSize * 0.9f, rect.y - mSize * 0.1f, mSize, mSize), info.markerTex);
             }
+        }
+
+        private static bool TryDrawHalfTurnIcon(Rect rect, Def iconDef, Color? iconColor)
+        {
+            if (!(iconDef is ThingDef thingDef) || thingDef.IsFrame) return false;
+            if (thingDef.uiIconAngle == 0f || Mathf.Abs(Mathf.DeltaAngle(thingDef.uiIconAngle, 180f)) > 0.01f) return false;
+            if (thingDef.uiIcon == null || thingDef.uiIcon == BaseContent.BadTex) return false;
+            if (Event.current.type != EventType.Repaint) return true;
+
+            var tex = Widgets.GetIconFor(thingDef, out var mat);
+            if (tex == null) return true;
+
+            rect.position += new Vector2(thingDef.uiIconOffset.x * rect.size.x, thingDef.uiIconOffset.y * rect.size.y);
+
+            var oldColor = GUI.color;
+            if (iconColor.HasValue) GUI.color = iconColor.Value;
+            else if (mat != null) GUI.color = Color.white;
+            else GUI.color = thingDef.MadeFromStuff ? thingDef.GetColorForStuff(GenStuff.DefaultStuffFor(thingDef)) : thingDef.uiIconColor;
+
+            float aspect = (float)tex.width / tex.height;
+            rect = aspect < 1f ? rect.MiddlePart(aspect, 1f) : rect.MiddlePart(1f, aspect);
+
+            var rot = thingDef.defaultPlacingRot;
+            var texProportions = new Vector2(tex.width, tex.height);
+            var texCoords = new Rect(0f, 0f, 1f, 1f);
+            if (thingDef.graphicData != null)
+            {
+                texProportions = rot.IsHorizontal ? thingDef.graphicData.drawSize.Rotated() : thingDef.graphicData.drawSize;
+                if (thingDef.uiIconPath.NullOrEmpty() && thingDef.graphicData.linkFlags != LinkFlags.None)
+                    texCoords = new Rect(0f, 0.5f, 0.25f, 0.25f);
+            }
+
+            var inner = new Rect(0f, 0f, texProportions.x, texProportions.y);
+            float fit = inner.width / inner.height < rect.width / rect.height ? rect.height / inner.height : rect.width / inner.width;
+            fit *= GenUI.IconDrawScale(thingDef);
+            inner.width *= fit;
+            inner.height *= fit;
+            inner.x = rect.x + rect.width / 2f - inner.width / 2f;
+            inner.y = rect.y + rect.height / 2f - inner.height / 2f;
+
+            GenUI.DrawTextureWithMaterial(inner, tex, mat, new Rect(texCoords.x + texCoords.width, texCoords.y + texCoords.height, -texCoords.width, -texCoords.height));
+            GUI.color = oldColor;
+            return true;
         }
 
         public override void Notify_ClickOutsideWindow()
