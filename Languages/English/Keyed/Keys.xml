@@ -52,6 +52,9 @@
   <BRM_OpenSettings>Open mod settings</BRM_OpenSettings>
   <BRM_OpenVanillaMenu>Open vanilla research menu</BRM_OpenVanillaMenu>
   <BRM_ToggleAutoOpen>Toggle auto-open of collapsed nodes over time</BRM_ToggleAutoOpen>
+  <BRM_AccelerateSimulation>Temporarily accelerate simulation</BRM_AccelerateSimulation>
+  <BRM_RevealAllNow>Reveal all now</BRM_RevealAllNow>
+  <BRM_RevealAllNothing>Nothing left to reveal.</BRM_RevealAllNothing>
   <BRM_ToggleFullscreen>Toggle fullscreen mode</BRM_ToggleFullscreen>
   <BRM_AutoOpenRate>Auto open rate: {0}</BRM_AutoOpenRate>
   <BRM_RevealAllInGodMode>Reveal all nodes in God Mode</BRM_RevealAllInGodMode>

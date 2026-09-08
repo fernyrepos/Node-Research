@@ -12,6 +12,7 @@
     <li IfModActive="ferny.progressionattire">Mods and Shit/Progression Attire</li>
     <li IfModActive="Dubwise.DubsBadHygiene">Mods and Shit/Dubs Bad Hygiene</li>
     <li IfModActive="ferny.progressionwarrants">Mods and Shit/Progression Warrants</li>
+    <li IfModActive="astryl.AsAboveSoBelow2">Mods and Shit/As Above So Below 2</li>
     <li IfModActive="Ludeon.RimWorld.Odyssey">Mods and Shit/Odyssey</li>
   </v1.6>
 </loadFolders>

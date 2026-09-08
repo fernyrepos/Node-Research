@@ -409,6 +409,9 @@ namespace BetterResearchMenu
         private static bool ShouldExemptFromAutoOpen(ResearchNode node) =>
             BetterResearchMenuMod.settings.exemptRecollapsedNodesFromAutoOpen && IsCollapsedOpenedNode(node);
 
+        private static bool WasEverOpened(ResearchNode node) =>
+            node != null && !node.isPhantom && !node.isGroupNode && (State.openedNodes?.Contains(node.def.defName) ?? false);
+
         private static Texture2D GetCachedCustomTexture(string texPath)
         {
             if (!cachedCustomTextures.TryGetValue(texPath, out var tex))
@@ -1250,7 +1253,7 @@ namespace BetterResearchMenu
                 if (autoOpenTimer <= 0f)
                 {
                     autoOpenTimer = BetterResearchMenuMod.settings.autoOpenRate;
-                    var candidates = nodes.Where(n => (n.state == NodeState.Minimized || n.state == NodeState.Dot) && !n.isPhantom && !n.isGroupNode && !n.isFinishedCache && !n.isLockedCache && !ShouldExemptFromAutoOpen(n) && !IsResearchLockedByDiscovery(n.def) && n.matchesSearchCache).ToList();
+                    var candidates = nodes.Where(n => IsAutoOpenCandidate(n) && !ShouldExemptFromAutoOpen(n)).ToList();
                     if (candidates.Count > 0)
                     {
                         var toExpand = candidates.RandomElement();
@@ -2753,11 +2756,35 @@ namespace BetterResearchMenu
             Text.Font = GameFont.Small;
         }
 
+        private static bool IsAutoOpenCandidate(ResearchNode n) =>
+            (n.state == NodeState.Minimized || n.state == NodeState.Dot) && !n.isPhantom && !n.isGroupNode
+            && !n.isFinishedCache && !n.isLockedCache && !IsResearchLockedByDiscovery(n.def) && n.matchesSearchCache;
+
+        private void RevealAllNodes()
+        {
+            var candidates = nodes.Where(n => IsAutoOpenCandidate(n) && !WasEverOpened(n)).ToList();
+            if (candidates.Count == 0)
+            {
+                Messages.Message("BRM_RevealAllNothing".Translate(), MessageTypeDefOf.RejectInput, false);
+                return;
+            }
+            foreach (var node in candidates)
+            {
+                node.state = NodeState.Expanded;
+                State.nodeStates[node.def.defName] = NodeState.Expanded;
+            }
+            RefreshExpandedChildCounts();
+            FastForwardPhysics(false);
+            DefsOf.BRM_ExpandingNode.PlayOneShotOnCamera();
+        }
+
         private void DrawGraphControls(Rect controlAreaRect)
         {
             var physicsBtnRect = new Rect(controlAreaRect.x, controlAreaRect.y, ControlBtnSize, ControlBtnSize);
             var vanillaBtnRect = new Rect(physicsBtnRect.xMax + ControlBtnGap, controlAreaRect.y, ControlBtnSize, ControlBtnSize);
 
+            bool physicsRightClicked = Event.current.type == EventType.MouseDown && Event.current.button == 1 && physicsBtnRect.Contains(Event.current.mousePosition);
+            if (physicsRightClicked) Event.current.Use();
             if (Widgets.ButtonImage(physicsBtnRect, TexPhysics, BetterResearchMenuMod.settings.physicsEnabled ? Color.white : Color.gray))
             {
                 BetterResearchMenuMod.settings.physicsEnabled = !BetterResearchMenuMod.settings.physicsEnabled;
@@ -2775,6 +2802,14 @@ namespace BetterResearchMenu
                 {
                     physicsTemperature = Mathf.Max(physicsTemperature, 100f);
                 }
+                SoundDefOf.Click.PlayOneShotOnCamera();
+            }
+            if (physicsRightClicked)
+            {
+                Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>
+                {
+                    new FloatMenuOption("BRM_AccelerateSimulation".Translate(), () => FastForwardPhysics())
+                }));
                 SoundDefOf.Click.PlayOneShotOnCamera();
             }
             TooltipHandler.TipRegion(physicsBtnRect, "BRM_TogglePhysics".Translate());
@@ -2799,10 +2834,20 @@ namespace BetterResearchMenu
             TooltipHandler.TipRegion(settingsBtnRect, "BRM_OpenSettings".Translate());
 
             var autoOpenBtnRect = new Rect(settingsBtnRect.xMax + ControlBtnGap, controlAreaRect.y, ControlBtnSize, ControlBtnSize);
+            bool autoOpenRightClicked = Event.current.type == EventType.MouseDown && Event.current.button == 1 && autoOpenBtnRect.Contains(Event.current.mousePosition);
+            if (autoOpenRightClicked) Event.current.Use();
             if (Widgets.ButtonImage(autoOpenBtnRect, TexAutoOpen, autoOpenEnabled ? Color.white : Color.gray))
             {
                 autoOpenEnabled = !autoOpenEnabled;
                 if (autoOpenEnabled) autoOpenTimer = BetterResearchMenuMod.settings.autoOpenRate;
+                SoundDefOf.Click.PlayOneShotOnCamera();
+            }
+            if (autoOpenRightClicked)
+            {
+                Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>
+                {
+                    new FloatMenuOption("BRM_RevealAllNow".Translate(), RevealAllNodes)
+                }));
                 SoundDefOf.Click.PlayOneShotOnCamera();
             }
             TooltipHandler.TipRegion(autoOpenBtnRect, "BRM_ToggleAutoOpen".Translate());
