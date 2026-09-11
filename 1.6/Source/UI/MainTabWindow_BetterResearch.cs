@@ -60,6 +60,7 @@ namespace BetterResearchMenu
         public const float DynamicScaleStep = 0.62f;
         public const float DynamicScaleMax = 5f;
         public const float RecollapsedScale = 0.5f;
+        public const float LockedScale = 0.6f;
 
         public static bool DynamicScalingMode => BetterResearchMenuMod.settings?.dynamicScalingMode ?? false;
 
@@ -71,6 +72,8 @@ namespace BetterResearchMenu
             : 1f;
 
         public float DynamicScale => smoothedScale < 0f ? TargetDynamicScale : smoothedScale;
+
+        public float CollapsedShrink => isRecollapsedCache ? RecollapsedScale : isLockedCache ? LockedScale : 1f;
 
         public void RefreshRecollapsed()
         {
@@ -91,7 +94,7 @@ namespace BetterResearchMenu
             float s = DynamicScale;
             if (currentState != NodeState.Dot && currentState != NodeState.Minimized) return s;
             s = Mathf.Sqrt(s);
-            return isRecollapsedCache ? s * RecollapsedScale : s;
+            return s * CollapsedShrink;
         }
 
         public float RadiusMultiplier => UsesLargeNodeStyle ? 1.95f : DynamicScale;
@@ -118,7 +121,7 @@ namespace BetterResearchMenu
         {
             if (!UsesLargeNodeStyle) return baseSize * GetDynamicScale(currentState);
             if (currentState != NodeState.Minimized) return baseSize * 2.275f;
-            return isRecollapsedCache ? baseSize * 2.4375f * RecollapsedScale : baseSize * 2.4375f;
+            return baseSize * 2.4375f * CollapsedShrink;
         }
     }
     public class ResearchEdge
@@ -1518,7 +1521,7 @@ namespace BetterResearchMenu
                 {
                     if (n.UsesLargeNodeStyle) n.collisionRadius = 52f;
                     else n.collisionRadius = 20f * Mathf.Sqrt(dynScale);
-                    if (n.isRecollapsedCache) n.collisionRadius *= ResearchNode.RecollapsedScale;
+                    n.collisionRadius *= n.CollapsedShrink;
                 }
                 else
                 {
@@ -1915,7 +1918,7 @@ namespace BetterResearchMenu
 
                     if (node.state == NodeState.Dot || node.state == NodeState.Minimized)
                     {
-                        var hitSize = NodeSizeMinimized * zoom * (node.isRecollapsedCache ? ResearchNode.RecollapsedScale : 1f);
+                        var hitSize = NodeSizeMinimized * zoom * node.CollapsedShrink;
                         var isHovering = IsOverNode(screenPos, localMousePos, hitSize, node.DrawAsSquare);
                         bool isLocked = node.isLockedCache;
                         var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
@@ -2179,7 +2182,7 @@ namespace BetterResearchMenu
 
                 if (node.state == NodeState.Dot || node.state == NodeState.Minimized)
                 {
-                    var hitSize = NodeSizeMinimized * zoom * (node.isRecollapsedCache ? ResearchNode.RecollapsedScale : 1f);
+                    var hitSize = NodeSizeMinimized * zoom * node.CollapsedShrink;
                     var isHovering = IsOverNode(screenPos, localMousePos, hitSize, isSquare);
                     var drawState = (node.state == NodeState.Minimized || isHovering || isLocked) ? NodeState.Minimized : NodeState.Dot;
 
