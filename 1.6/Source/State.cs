@@ -51,6 +51,7 @@ namespace BetterResearchMenu
             if (seededDefaultAnchors) return;
             anchoredNodes ??= [];
             anchoredNodes.Add("VFET_Fire");
+            anchoredNodes.Add("BasicGravtech");
             seededDefaultAnchors = true;
         }
 

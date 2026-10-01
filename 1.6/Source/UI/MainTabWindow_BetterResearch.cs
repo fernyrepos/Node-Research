@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -51,6 +52,7 @@ namespace BetterResearchMenu
         public HashSet<ResearchNode> connectedNodes = new HashSet<ResearchNode>();
         public List<ResearchEdge> nodeEdges = new List<ResearchEdge>();
         public string cachedSubLabel;
+        public float cachedPhase;
         public float cachedTitleHeight_Tiny;
         public float cachedTitleHeight_Small;
         public float cachedTitleHeight_Medium;
@@ -226,6 +228,7 @@ namespace BetterResearchMenu
         private static Color ColorLeftBarBackground = new ColorInt(73, 78, 96).ToColor;
         private float ThicknessFinished = 3f;
         private float ThicknessUnfinished = 2f;
+        private const float MinEdgeThickness = 0.34f;
         private float IconPadding = 12f;
         private const float QueueEntrySize = 36f;
         private const float QueuePad = 5f;
@@ -236,6 +239,14 @@ namespace BetterResearchMenu
         private float queueDragGrabOffset;
         private float physicsTemperature = 0f;
         private int fastForwardTicks = 0;
+        private const int LayoutMaxTicks = 5000;
+        private const int FastForwardTicksPerFrame = 30;
+        private const int FastForwardTotalTicks = 1800;
+        private const float LayoutFrameBudgetMs = 5f;
+        private int layoutTicksRemaining = 0;
+        private int layoutTicksDone = 0;
+        private int layoutActiveCount = 0;
+        private bool pendingCameraFit = false;
         private static bool pendingFastForward = false;
 
         private const float HintFadeIn = 0.8f;
@@ -598,7 +609,8 @@ namespace BetterResearchMenu
         {
             if (reinit) InitPhysics(false);
             physicsTemperature = Mathf.Max(physicsTemperature, 200f);
-            fastForwardTicks = 60;
+            fastForwardTicks = FastForwardTotalTicks;
+            layoutActiveCount = nodes.Count(n => n.state != NodeState.Hidden);
         }
 
         public static void RequestFastForward()
@@ -611,6 +623,8 @@ namespace BetterResearchMenu
 
         public void InitPhysics(bool instant = false)
         {
+            layoutTicksRemaining = 0;
+            pendingCameraFit = false;
             ResearchProjectDef previouslySelectedDef = selectedNode?.def;
 
             float techLevelSpacing = 350f;
@@ -923,6 +937,7 @@ namespace BetterResearchMenu
             foreach (var node in nodes)
             {
                 node.cachedMass = 1f + Mathf.Pow(node.edgeCount, 1.2f) * 0.5f;
+                node.cachedPhase = StableAngle(node.cachedKey);
             }
             RefreshExpandedChildCounts();
             AssignChildSlots();
@@ -970,32 +985,38 @@ namespace BetterResearchMenu
                 if (!wasSeeded)
                 {
                     InitPhysicsLayout();
+                    pendingCameraFit = true;
                 }
-                string key = $"{CurTab.defName}_{currentEra}_{GodModeReveal}";
-                if (cachedCameraOffsets.TryGetValue(key, out var savedOffset))
-                {
-                    cameraOffset = savedOffset;
-
-                    if (nodes.Any())
-                    {
-                        var min = new Vector2(nodes.Min(n => n.pos.x), nodes.Min(n => n.pos.y));
-                        var max = new Vector2(nodes.Max(n => n.pos.x), nodes.Max(n => n.pos.y));
-                        var bounds = new Rect(min.x, min.y, max.x - min.x, max.y - min.y).ExpandedBy(1000f);
-                        if (!bounds.Contains(-cameraOffset))
-                        {
-                            cameraOffset = ComputeCentroidOffset();
-                            cachedCameraOffsets[$"{CurTab.defName}_{currentEra}_{GodModeReveal}"] = cameraOffset;
-                        }
-                    }
-                }
-                else
-                {
-                    cameraOffset = ComputeCentroidOffset();
-                    cachedCameraOffsets[$"{CurTab.defName}_{currentEra}_{GodModeReveal}"] = cameraOffset;
-                }
+                if (layoutTicksRemaining <= 0) FitInitialCamera();
             }
 
             UpdateCustomSearch();
+        }
+
+        private void FitInitialCamera()
+        {
+            string key = $"{CurTab.defName}_{currentEra}_{GodModeReveal}";
+            if (cachedCameraOffsets.TryGetValue(key, out var savedOffset))
+            {
+                cameraOffset = savedOffset;
+
+                if (nodes.Any())
+                {
+                    var min = new Vector2(nodes.Min(n => n.pos.x), nodes.Min(n => n.pos.y));
+                    var max = new Vector2(nodes.Max(n => n.pos.x), nodes.Max(n => n.pos.y));
+                    var bounds = new Rect(min.x, min.y, max.x - min.x, max.y - min.y).ExpandedBy(1000f);
+                    if (!bounds.Contains(-cameraOffset))
+                    {
+                        cameraOffset = ComputeCentroidOffset();
+                        cachedCameraOffsets[key] = cameraOffset;
+                    }
+                }
+            }
+            else
+            {
+                cameraOffset = ComputeCentroidOffset();
+                cachedCameraOffsets[key] = cameraOffset;
+            }
         }
 
         private static void SeedRootPositions(List<ResearchNode> roots)
@@ -1129,7 +1150,7 @@ namespace BetterResearchMenu
             if (count == 1 && parentPos.sqrMagnitude > 1f)
                 return parentPos.normalized;
 
-            float phase = StableAngle(edge.from.cachedKey);
+            float phase = edge.from.cachedPhase;
             float angle = phase + (Mathf.PI * 2f * edge.childSlot / count);
             return new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
         }
@@ -1205,18 +1226,29 @@ namespace BetterResearchMenu
         private void InitPhysicsLayout()
         {
             physicsTemperature = 200f;
-            var activeCount = nodes.Count(n => n.state != NodeState.Hidden);
-            if (activeCount == 0) return;
+            layoutActiveCount = nodes.Count(n => n.state != NodeState.Hidden);
+            layoutTicksDone = 0;
+            layoutTicksRemaining = layoutActiveCount == 0 ? 0 : LayoutMaxTicks;
+        }
 
-            for (int i = 0; i < 5000; i++)
+        private void AdvanceLayoutSettle()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (layoutTicksRemaining > 0)
             {
                 PhysicsTick(0.04f, true);
+                layoutTicksRemaining--;
+                layoutTicksDone++;
 
-                if (i > 150 && (velocitySum / activeCount) < 0.001f)
+                if (layoutTicksDone > 150 && (velocitySum / layoutActiveCount) < 0.001f)
                 {
+                    layoutTicksRemaining = 0;
                     break;
                 }
+                if (watch.Elapsed.TotalMilliseconds >= LayoutFrameBudgetMs) break;
             }
+
+            if (layoutTicksRemaining > 0) return;
 
             physicsTemperature = 0f;
             foreach (var node in nodes)
@@ -1224,6 +1256,11 @@ namespace BetterResearchMenu
                 node.velocity = Vector2.zero;
                 node.drawPos = node.pos;
                 if (!node.isPhantom) State.nodePositions[node.cachedKey] = node.pos;
+            }
+            if (pendingCameraFit)
+            {
+                pendingCameraFit = false;
+                FitInitialCamera();
             }
         }
 
@@ -1323,9 +1360,15 @@ namespace BetterResearchMenu
                 physicsTemperature = Mathf.Max(physicsTemperature, 100f);
             }
 
-            int ticksThisFrame = fastForwardTicks > 0 ? 30 : 1;
+            if (layoutTicksRemaining > 0)
+            {
+                AdvanceLayoutSettle();
+                foreach (var node in nodes) node.drawPos = node.pos;
+                return;
+            }
+
             bool isFastForwarding = fastForwardTicks > 0;
-            if (fastForwardTicks > 0) fastForwardTicks--;
+            int ticksThisFrame = isFastForwarding ? Mathf.Min(FastForwardTicksPerFrame, fastForwardTicks) : 1;
 
             RefreshExpandedChildCounts();
             float scaleDt = isFastForwarding ? 1f : Time.deltaTime;
@@ -1334,9 +1377,20 @@ namespace BetterResearchMenu
                 nodes[i].UpdateSmoothedScale(scaleDt);
             }
 
+            var budget = isFastForwarding ? System.Diagnostics.Stopwatch.StartNew() : null;
             for (int i = 0; i < ticksThisFrame; i++)
             {
                 PhysicsTick(0.02f, isFastForwarding);
+                if (!isFastForwarding) continue;
+                fastForwardTicks--;
+                if (budget.Elapsed.TotalMilliseconds >= LayoutFrameBudgetMs) break;
+            }
+
+            if (isFastForwarding && fastForwardTicks > 0)
+            {
+                int ticksDone = FastForwardTotalTicks - fastForwardTicks;
+                bool settled = layoutActiveCount > 0 && ticksDone > 150 && (velocitySum / layoutActiveCount) < 0.001f;
+                if (settled) fastForwardTicks = 0;
             }
 
             foreach (var node in nodes)
@@ -1464,6 +1518,250 @@ namespace BetterResearchMenu
             }
         }
 
+        private void EnsureRepulsionBuffers(int nodeCount)
+        {
+            if (repSumX != null && repSumX.Length >= nodeCount) return;
+            int cap = nodeCount + 200;
+            repAccStride = cap;
+            repSumX = new float[cap];
+            repSumY = new float[cap];
+            repAccXFlat = new float[cap * MaxRepulsionPartitions];
+            repAccYFlat = new float[cap * MaxRepulsionPartitions];
+        }
+
+        private void ComputeRepulsionPartition(int p)
+        {
+            int n = tickNodeCount;
+            int baseOff = p * repAccStride;
+            var ax = repAccXFlat;
+            var ay = repAccYFlat;
+            int rowStart = 0;
+            int rowEnd = 0;
+
+            while (true)
+            {
+                if (rowStart >= rowEnd)
+                {
+                    rowStart = System.Threading.Interlocked.Add(ref repRowCursor, RepulsionRowChunk) - RepulsionRowChunk;
+                    if (rowStart >= n) break;
+                    rowEnd = Mathf.Min(rowStart + RepulsionRowChunk, n);
+                }
+                int ni = rowStart++;
+                if (isHiddenCache[ni]) continue;
+
+                float nx = pX[ni];
+                float ny = pY[ni];
+                bool isCollapsed = isCollapsedCache[ni];
+                float nodeRadius = radiusCache[ni];
+                float nodeHub = hubFactorCache[ni];
+                float nodeHubRepulsion = (HubPairRepulsion - 1f) * nodeHub;
+                float nodeHubBuffer = tickHubBufferSpan * nodeHub;
+                float mulIfOtherColl = isCollapsed ? 2.0f : 0.15f;
+                float mulIfOtherNotColl = isCollapsed ? 0.15f : 1f;
+                float baseRepWeight = tickBaseRep * weightCache[ni];
+                int niRow = ni * n;
+                float accX = 0f;
+                float accY = 0f;
+
+                for (int oi = ni + 1; oi < n; oi++)
+                {
+                    if (isHiddenCache[oi]) continue;
+
+                    float dx = nx - pX[oi];
+                    float dy = ny - pY[oi];
+                    float distSq = dx * dx + dy * dy;
+
+                    if (!(distSq >= 1f))
+                    {
+                        int jn = (ni * 7919 + oi) & (JitterNoiseCount - 1);
+                        dx = jitterNoise[jn];
+                        dy = jitterNoise[(jn + 512) & (JitterNoiseCount - 1)];
+                        if (dx == 0f && dy == 0f) dx = 0.01f;
+                        distSq = dx * dx + dy * dy;
+                    }
+
+                    float forceMagSq = baseRepWeight * weightCache[oi] / distSq;
+
+                    if (adjacencyMatrixFlat[niRow + oi]) forceMagSq *= 0.4f;
+
+                    float otherHub = hubFactorCache[oi];
+
+                    forceMagSq *= 1f + nodeHubRepulsion * otherHub;
+                    forceMagSq *= isCollapsedCache[oi] ? mulIfOtherColl : mulIfOtherNotColl;
+
+                    float minDist = nodeRadius + radiusCache[oi] + BaseCollisionBuffer + nodeHubBuffer * otherHub;
+                    if (distSq < minDist * minDist)
+                    {
+                        float dist = Mathf.Sqrt(distSq);
+                        forceMagSq += (minDist - dist) * 2000f / dist;
+                    }
+
+                    float fx = dx * forceMagSq;
+                    float fy = dy * forceMagSq;
+                    accX += fx;
+                    accY += fy;
+                    ax[baseOff + oi] -= fx;
+                    ay[baseOff + oi] -= fy;
+                }
+
+                ax[baseOff + ni] += accX;
+                ay[baseOff + ni] += accY;
+            }
+        }
+
+        private float ComputeNodeForces(int ni)
+        {
+            var node = nodes[ni];
+            if (node.isDragging || isHiddenCache[ni] || node.isPhantom || node.isAnchor)
+            {
+                node.velocity = Vector2.zero;
+                return 0f;
+            }
+
+            float nx = pX[ni];
+            float ny = pY[ni];
+
+            float repX = repSumX[ni];
+            float repY = repSumY[ni];
+
+            float attX = 0f;
+            float attY = 0f;
+            float branchX = 0f;
+            float branchY = 0f;
+
+            int edgeCount = node.nodeEdges.Count;
+            for (int e = 0; e < edgeCount; e++)
+            {
+                var edge = node.nodeEdges[e];
+                var other = (edge.from == node) ? edge.to : edge.from;
+                int oi = other.nodeIndex;
+                if (isHiddenCache[oi]) continue;
+
+                float dx = pX[oi] - nx;
+                float dy = pY[oi] - ny;
+                float distSq = dx * dx + dy * dy;
+
+                if (!(distSq >= 100f)) continue;
+
+                float dist = Mathf.Sqrt(distSq);
+
+                const float k_att = 200f;
+                float attMul = 1f;
+
+                bool fromCollapsed = isCollapsedCache[edge.from.nodeIndex];
+                bool toCollapsed = isCollapsedCache[edge.to.nodeIndex];
+                if (toCollapsed) attMul = 30f;
+                else if (fromCollapsed) attMul = 6f;
+
+                float mul = (dist / k_att) * attMul * tickContForce;
+                attX += dx * mul;
+                attY += dy * mul;
+
+                var parent = edge.from;
+                var child = edge.to;
+                float px = pX[parent.nodeIndex];
+                float py = pY[parent.nodeIndex];
+                Vector2 branchDir = GetFlowerDirection(edge, new Vector2(px, py));
+                float radialX = branchDir.x;
+                float radialY = branchDir.y;
+
+                float desiredLength = edge.isGroupEdge ? 320f : 280f;
+                if (toCollapsed) desiredLength *= 0.85f;
+                else if (fromCollapsed) desiredLength *= 1.15f;
+
+                if (ResearchNode.DynamicScalingMode)
+                    desiredLength += Mathf.Max(0f, radiusCache[parent.nodeIndex] - 40f);
+
+                float desiredChildX = px + radialX * desiredLength;
+                float desiredChildY = py + radialY * desiredLength;
+                float branchMul = 0.9f * tickContForce;
+
+                if (node == child)
+                {
+                    float childForceX = (desiredChildX - nx) * branchMul;
+                    float childForceY = (desiredChildY - ny) * branchMul;
+                    float outwardProgress = ((nx - px) * radialX) + ((ny - py) * radialY);
+                    if (outwardProgress < desiredLength * 0.6f)
+                    {
+                        float push = (desiredLength * 0.6f - outwardProgress) * 3f * tickContForce;
+                        childForceX += radialX * push;
+                        childForceY += radialY * push;
+                    }
+                    branchX += childForceX;
+                    branchY += childForceY;
+                }
+                else if (node == parent)
+                {
+                    branchX += (nx - desiredChildX) * branchMul * 0.15f;
+                    branchY += (ny - desiredChildY) * branchMul * 0.15f;
+                }
+            }
+
+            float distToCenterSq = nx * nx + ny * ny;
+            float distanceMultiplier = 1f + Mathf.Max(0f, distToCenterSq - tickGraphRadiusBoundSq) / tickGraphRadiusBoundSq;
+            float centerForceFactor = centerForceBaseCache[ni] * distanceMultiplier;
+
+            float cx = -nx * centerForceFactor;
+            float cy = -ny * centerForceFactor;
+
+            float outwardPushFactor = 1f - hubFactorCache[ni];
+            if (parentCountCache[ni] > 0 && outwardPushFactor > 0f)
+            {
+                float minChildRadius = tickGraphRadiusBound * 0.45f;
+                if (distToCenterSq > 1f && distToCenterSq < minChildRadius * minChildRadius)
+                {
+                    float distToCenter = Mathf.Sqrt(distToCenterSq);
+                    float push = (minChildRadius - distToCenter) * 0.25f * tickCenterForceMul * outwardPushFactor;
+                    cx += (nx / distToCenter) * push;
+                    cy += (ny / distToCenter) * push;
+                }
+            }
+
+            float leashRadius = tickGraphRadiusBound * 1.8f;
+            if (distToCenterSq > leashRadius * leashRadius)
+            {
+                float distToCenter = Mathf.Sqrt(distToCenterSq);
+                float leashPull = (distToCenter - leashRadius) * 0.8f * tickCenterForceMul;
+                cx -= (nx / distToCenter) * leashPull;
+                cy -= (ny / distToCenter) * leashPull;
+            }
+
+            float totalForceX = repX + attX + branchX + cx;
+            float totalForceY = repY + attY + branchY + cy;
+
+            node.lastRepulsionForce = new Vector2(repX, repY);
+            node.lastAttractionForce = new Vector2(attX, attY);
+            node.lastCenterForce = new Vector2(cx, cy);
+
+            float vx = node.velocity.x;
+            float vy = node.velocity.y;
+            float invMass = invMassCache[ni];
+
+            vx = (vx + totalForceX * invMass * tickDt) * 0.75f;
+            vy = (vy + totalForceY * invMass * tickDt) * 0.75f;
+
+            float speedSq = vx * vx + vy * vy;
+            float physTempSq = physicsTemperature * physicsTemperature;
+
+            if (speedSq > physTempSq)
+            {
+                float speed = Mathf.Sqrt(speedSq);
+                float shrink = physicsTemperature / speed;
+                vx *= shrink;
+                vy *= shrink;
+                speedSq = physTempSq;
+            }
+            else if (speedSq < 0.0025f && !tickIgnoreSettings)
+            {
+                vx = 0f;
+                vy = 0f;
+                speedSq = 0f;
+            }
+
+            node.velocity = new Vector2(vx, vy);
+            return speedSq;
+        }
+
         private void PhysicsTick(float dt, bool ignoreSettings = false)
         {
             if (!BetterResearchMenuMod.settings.physicsEnabled && !ignoreSettings) { physicsTemperature = 0f; return; }
@@ -1482,6 +1780,22 @@ namespace BetterResearchMenu
             float hubBufferSpan = dynamicHubBuffer - BaseCollisionBuffer;
             float invDynamicScaleSpan = 1f / (ResearchNode.DynamicScaleMax - 1f);
             bool dynamicMode = ResearchNode.DynamicScalingMode;
+
+            tickNodeCount = nodeCount;
+            tickBaseRep = baseRep;
+            tickContForce = contForce;
+            tickCenterForceMul = centerForceMul;
+            tickGraphRadiusBound = graphRadiusBound;
+            tickGraphRadiusBoundSq = graphRadiusBoundSq;
+            tickHubBufferSpan = hubBufferSpan;
+            tickDt = dt;
+            tickIgnoreSettings = ignoreSettings;
+
+            if (jitterNoise == null)
+            {
+                jitterNoise = new float[JitterNoiseCount];
+                for (int i = 0; i < JitterNoiseCount; i++) jitterNoise[i] = Rand.Value - 0.5f;
+            }
 
             if (isHiddenCache.Length < nodeCount)
             {
@@ -1531,6 +1845,13 @@ namespace BetterResearchMenu
                 radiusCache[i] = n.collisionRadius * n.customScale;
                 pX[i] = n.pos.x;
                 pY[i] = n.pos.y;
+                if (float.IsNaN(pX[i]) || float.IsNaN(pY[i]))
+                {
+                    pX[i] = Rand.Range(-10f, 10f);
+                    pY[i] = Rand.Range(-10f, 10f);
+                    n.pos = new Vector2(pX[i], pY[i]);
+                    n.velocity = Vector2.zero;
+                }
                 int parentCount = Mathf.Max(0, n.edgeCount - n.childCount);
                 parentCountCache[i] = parentCount;
                 float centerWeight;
@@ -1553,219 +1874,46 @@ namespace BetterResearchMenu
                 invMassCache[i] = 1f / n.cachedMass;
             }
 
-            for (int ni = 0; ni < nodeCount; ni++)
+            EnsureRepulsionBuffers(nodeCount);
+            tickPartitions = nodeCount >= ParallelNodeThreshold
+                ? Mathf.Clamp(Environment.ProcessorCount, 1, MaxRepulsionPartitions)
+                : 1;
+            int clearLen = tickPartitions * repAccStride;
+            Array.Clear(repAccXFlat, 0, clearLen);
+            Array.Clear(repAccYFlat, 0, clearLen);
+
+            repRowCursor = 0;
+            if (tickPartitions > 1) Parallel.For(0, tickPartitions, ComputeRepulsionPartition);
+            else ComputeRepulsionPartition(0);
+
+            for (int i = 0; i < nodeCount; i++)
             {
-                var node = nodes[ni];
-                if (node.isDragging || isHiddenCache[ni] || node.isPhantom || node.isAnchor)
+                float sx = 0f;
+                float sy = 0f;
+                for (int p = 0; p < tickPartitions; p++)
                 {
-                    node.velocity = Vector2.zero;
-                    continue;
+                    int o = p * repAccStride + i;
+                    sx += repAccXFlat[o];
+                    sy += repAccYFlat[o];
                 }
+                repSumX[i] = sx;
+                repSumY[i] = sy;
+            }
 
-                float nx = pX[ni];
-                float ny = pY[ni];
-
-                if (float.IsNaN(nx) || float.IsNaN(ny))
-                {
-                    nx = Rand.Range(-10f, 10f);
-                    ny = Rand.Range(-10f, 10f);
-                    node.pos = new Vector2(nx, ny);
-                    pX[ni] = nx;
-                    pY[ni] = ny;
-                    node.velocity = Vector2.zero;
-                }
-
-                float repX = 0f;
-                float repY = 0f;
-
-                bool isCollapsed = isCollapsedCache[ni];
-                float nodeWeight = weightCache[ni];
-                float nodeRadius = radiusCache[ni];
-
-                float nodeHubRepulsion = (HubPairRepulsion - 1f) * hubFactorCache[ni];
-                float nodeHubBuffer = hubBufferSpan * hubFactorCache[ni];
-
-                float mulIfOtherColl = isCollapsed ? 2.0f : 0.15f;
-                float mulIfOtherNotColl = isCollapsed ? 0.15f : 1f;
-
-                float baseRepWeight = baseRep * nodeWeight;
-                int niRow = ni * nodeCount;
-
-                for (int oi = 0; oi < nodeCount; oi++)
-                {
-                    if (ni == oi || isHiddenCache[oi]) continue;
-
-                    float dx = nx - pX[oi];
-                    float dy = ny - pY[oi];
-                    float distSq = dx * dx + dy * dy;
-
-                    if (!(distSq >= 1f))
-                    {
-                        dx = Rand.Value - 0.5f;
-                        dy = Rand.Value - 0.5f;
-                        if (dx == 0f && dy == 0f) dx = 0.01f;
-                        distSq = dx * dx + dy * dy;
-                    }
-
-                    float forceMagSq = baseRepWeight * weightCache[oi] / distSq;
-
-                    if (adjacencyMatrixFlat[niRow + oi]) forceMagSq *= 0.4f;
-
-                    float otherHub = hubFactorCache[oi];
-
-                    forceMagSq *= 1f + nodeHubRepulsion * otherHub;
-
-                    forceMagSq *= isCollapsedCache[oi] ? mulIfOtherColl : mulIfOtherNotColl;
-
-                    float buffer = BaseCollisionBuffer + nodeHubBuffer * otherHub;
-                    float minDist = nodeRadius + radiusCache[oi] + buffer;
-                    float minDistSq = minDist * minDist;
-                    if (distSq < minDistSq)
-                    {
-                        float dist = Mathf.Sqrt(distSq);
-                        forceMagSq += (minDist - dist) * 2000f / dist;
-                    }
-
-                    repX += dx * forceMagSq;
-                    repY += dy * forceMagSq;
-                }
-
-                float attX = 0f;
-                float attY = 0f;
-                float branchX = 0f;
-                float branchY = 0f;
-
-                int edgeCount = node.nodeEdges.Count;
-                for (int e = 0; e < edgeCount; e++)
-                {
-                    var edge = node.nodeEdges[e];
-                    var other = (edge.from == node) ? edge.to : edge.from;
-                    int oi = other.nodeIndex;
-                    if (isHiddenCache[oi]) continue;
-
-                    float dx = pX[oi] - nx;
-                    float dy = pY[oi] - ny;
-                    float distSq = dx * dx + dy * dy;
-
-                    if (!(distSq >= 100f)) continue;
-
-                    float dist = Mathf.Sqrt(distSq);
-
-                    const float k_att = 200f;
-                    float attMul = 1f;
-
-                    bool fromCollapsed = isCollapsedCache[edge.from.nodeIndex];
-                    bool toCollapsed = isCollapsedCache[edge.to.nodeIndex];
-                    if (toCollapsed) attMul = 30f;
-                    else if (fromCollapsed) attMul = 6f;
-
-                    float mul = (dist / k_att) * attMul * contForce;
-                    attX += dx * mul;
-                    attY += dy * mul;
-
-                    var parent = edge.from;
-                    var child = edge.to;
-                    float px = pX[parent.nodeIndex];
-                    float py = pY[parent.nodeIndex];
-                    Vector2 branchDir = GetFlowerDirection(edge, new Vector2(px, py));
-                    float radialX = branchDir.x;
-                    float radialY = branchDir.y;
-
-                    float desiredLength = edge.isGroupEdge ? 320f : 280f;
-                    if (toCollapsed) desiredLength *= 0.85f;
-                    else if (fromCollapsed) desiredLength *= 1.15f;
-
-                    if (ResearchNode.DynamicScalingMode)
-                        desiredLength += Mathf.Max(0f, radiusCache[parent.nodeIndex] - 40f);
-
-                    float desiredChildX = px + radialX * desiredLength;
-                    float desiredChildY = py + radialY * desiredLength;
-                    float branchMul = 0.9f * contForce;
-
-                    if (node == child)
-                    {
-                        float childForceX = (desiredChildX - nx) * branchMul;
-                        float childForceY = (desiredChildY - ny) * branchMul;
-                        float outwardProgress = ((nx - px) * radialX) + ((ny - py) * radialY);
-                        if (outwardProgress < desiredLength * 0.6f)
-                        {
-                            float push = (desiredLength * 0.6f - outwardProgress) * 3f * contForce;
-                            childForceX += radialX * push;
-                            childForceY += radialY * push;
-                        }
-                        branchX += childForceX;
-                        branchY += childForceY;
-                    }
-                    else if (node == parent)
-                    {
-                        branchX += (nx - desiredChildX) * branchMul * 0.15f;
-                        branchY += (ny - desiredChildY) * branchMul * 0.15f;
-                    }
-                }
-
-                float distToCenterSq = nx * nx + ny * ny;
-                float distanceMultiplier = 1f + Mathf.Max(0f, distToCenterSq - graphRadiusBoundSq) / graphRadiusBoundSq;
-                float centerForceFactor = centerForceBaseCache[ni] * distanceMultiplier;
-
-                float cx = -nx * centerForceFactor;
-                float cy = -ny * centerForceFactor;
-
-                float outwardPushFactor = 1f - hubFactorCache[ni];
-                if (parentCountCache[ni] > 0 && outwardPushFactor > 0f)
-                {
-                    float minChildRadius = graphRadiusBound * 0.45f;
-                    if (distToCenterSq > 1f && distToCenterSq < minChildRadius * minChildRadius)
-                    {
-                        float distToCenter = Mathf.Sqrt(distToCenterSq);
-                        float push = (minChildRadius - distToCenter) * 0.25f * centerForceMul * outwardPushFactor;
-                        cx += (nx / distToCenter) * push;
-                        cy += (ny / distToCenter) * push;
-                    }
-                }
-
-                float leashRadius = graphRadiusBound * 1.8f;
-                if (distToCenterSq > leashRadius * leashRadius)
-                {
-                    float distToCenter = Mathf.Sqrt(distToCenterSq);
-                    float leashPull = (distToCenter - leashRadius) * 0.8f * centerForceMul;
-                    cx -= (nx / distToCenter) * leashPull;
-                    cy -= (ny / distToCenter) * leashPull;
-                }
-
-                float totalForceX = repX + attX + branchX + cx;
-                float totalForceY = repY + attY + branchY + cy;
-
-                node.lastRepulsionForce = new Vector2(repX, repY);
-                node.lastAttractionForce = new Vector2(attX, attY);
-                node.lastCenterForce = new Vector2(cx, cy);
-
-                float vx = node.velocity.x;
-                float vy = node.velocity.y;
-                float invMass = invMassCache[ni];
-
-                vx = (vx + totalForceX * invMass * dt) * 0.75f;
-                vy = (vy + totalForceY * invMass * dt) * 0.75f;
-
-                float speedSq = vx * vx + vy * vy;
-                float physTempSq = physicsTemperature * physicsTemperature;
-
-                if (speedSq > physTempSq)
-                {
-                    float speed = Mathf.Sqrt(speedSq);
-                    float shrink = physicsTemperature / speed;
-                    vx *= shrink;
-                    vy *= shrink;
-                    speedSq = physTempSq;
-                }
-                else if (speedSq < 0.0025f && !ignoreSettings)
-                {
-                    vx = 0f;
-                    vy = 0f;
-                    speedSq = 0f;
-                }
-
-                node.velocity = new Vector2(vx, vy);
-                velocitySum += speedSq;
+            if (nodeCount >= ParallelNodeThreshold)
+            {
+                float velTotal = 0f;
+                object velGate = new object();
+                Parallel.For(0, nodeCount, () => 0f,
+                    (ni, loopState, local) => local + ComputeNodeForces(ni),
+                    local => { lock (velGate) velTotal += local; });
+                velocitySum = velTotal;
+            }
+            else
+            {
+                float velTotal = 0f;
+                for (int ni = 0; ni < nodeCount; ni++) velTotal += ComputeNodeForces(ni);
+                velocitySum = velTotal;
             }
 
             for (int i = 0; i < nodeCount; i++)
@@ -1789,6 +1937,27 @@ namespace BetterResearchMenu
         }
 
         private float velocitySum = 0f;
+        private const int ParallelNodeThreshold = 250;
+        private const int MaxRepulsionPartitions = 16;
+        private const int RepulsionRowChunk = 8;
+        private int repRowCursor;
+        private float[] repAccXFlat;
+        private float[] repAccYFlat;
+        private float[] repSumX;
+        private float[] repSumY;
+        private int repAccStride;
+        private int tickPartitions;
+        private const int JitterNoiseCount = 1024;
+        private static float[] jitterNoise;
+        private int tickNodeCount;
+        private float tickBaseRep;
+        private float tickContForce;
+        private float tickCenterForceMul;
+        private float tickGraphRadiusBound;
+        private float tickGraphRadiusBoundSq;
+        private float tickHubBufferSpan;
+        private float tickDt;
+        private bool tickIgnoreSettings;
         private HashSet<(ResearchNode, ResearchNode)> phantomEdgeSet = new HashSet<(ResearchNode, ResearchNode)>();
 
         private Vector2 ComputeCentroidOffset()
@@ -2118,13 +2287,13 @@ namespace BetterResearchMenu
                 if (edge.isGroupEdge)
                 {
                     edgeColor = new Color(0.65f, 0.65f, 0.45f, 0.35f);
-                    edgeThickness = 1f * zoom;
+                    edgeThickness = Mathf.Max(MinEdgeThickness, 1f * zoom);
                 }
                 else
                 {
                     var isFinished = !edge.from.isPhantom && edge.from.isFinishedCache;
                     edgeColor = isFinished ? ColorEdgeFinished : ColorEdgeUnfinished;
-                    edgeThickness = (isFinished ? ThicknessFinished : ThicknessUnfinished) * zoom;
+                    edgeThickness = Mathf.Max(MinEdgeThickness, (isFinished ? ThicknessFinished : ThicknessUnfinished) * zoom);
                 }
 
                 Vector2 fromPos = WorldToScreen(edge.from.drawPos);
@@ -2286,6 +2455,17 @@ namespace BetterResearchMenu
                 }
             }
 
+            if (layoutTicksRemaining > 0 || fastForwardTicks > 0)
+            {
+                Text.Anchor = TextAnchor.MiddleCenter;
+                Text.Font = GameFont.Medium;
+                GUI.color = new Color(0.82f, 0.82f, 0.82f, 0.9f);
+                Widgets.Label(new Rect(0f, graphRect.height / 2f - 20f, graphRect.width, 40f), "BRM_SettlingLayout".Translate());
+                GUI.color = Color.white;
+                Text.Anchor = TextAnchor.UpperLeft;
+                Text.Font = GameFont.Small;
+            }
+
             Widgets.EndGroup();
 
             if (CurTab == DefsOf.Main)
@@ -2315,7 +2495,7 @@ namespace BetterResearchMenu
         private void HandleInputs(Rect graphRect, Rect sliderExcl, Rect panelExcl, Rect searchBarExcl, Rect inRect, Rect queueExcl = default)
         {
             float zoomSensitivity = 0.05f;
-            float minZoom = 0.05f;
+            float minZoom = 0.025f;
             float maxZoom = 3f;
 
             Vector2 mousePos = Event.current.mousePosition;
